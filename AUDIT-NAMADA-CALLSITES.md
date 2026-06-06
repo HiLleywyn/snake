@@ -109,6 +109,29 @@ constraint debt (one site).
 
 ---
 
+## Canonical strict output (per reviewer)
+
+```
+conversion.rs:638      → masp_conversion_key storage read → MASP internal storage boundary
+                         → unchecked deserialization
+                         → trusted governance/migration input, not validated
+conversion.rs:656/:858 → conversion-tree leaf insertion → consumes value from :638
+                         → no re-derivation at insertion
+                         → trusted input, not validated
+conversion.rs:435/:539 → per-epoch reward conversion construction → checked .into() derivation
+                         → safe by checked constructor
+migrations.rs:664 +    → typed AllowedConversion migration validation → checked deserializer
+  validate():245         → trusted genesis/governance input, validated before tree insertion
+migrations.rs:58/:254  → raw Vec<u8> DB migration writes → bypasses typed validation
+                         → trusted input, not validated
+```
+
+**Preferred remediation (reviewer):** force all `masp_conversion_key` writes
+through typed `AllowedConversion` validation, **or** re-derive/check the
+generator at the read site before tree insertion. The **read-side check is
+preferred** because it protects against future migration mistakes (it fails
+closed regardless of how the bytes were written).
+
 ## Conclusion & remediation
 
 - **No `untrusted input, not validated` exists** — every path that admits a
