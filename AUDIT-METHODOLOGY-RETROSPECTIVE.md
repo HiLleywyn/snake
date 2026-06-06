@@ -137,6 +137,40 @@ quite dual representation (the representations are equal; the *positions* or
 This is a genuinely distinct review target with its own questions (Section 5,
 bucket 6).
 
+### 4b. The 6a/6b split (from the AVM falsification test)
+
+Applying the model to four public-layer strategies — Aleo (*re-execute* under
+consensus), Mina (*recursively prove the whole state*), and Aztec (*prove the
+public VM*) — and then running the cleanest falsification (does proving the
+public VM **eliminate** bucket-6 debt, or move it?) forced bucket 6 to split:
+
+- **6a — inter-layer deferral:** "layer A trusts layer B to enforce X."
+  **Reducible by proving.** Aztec's AVM converts the Pass-2 deferrals (revertible
+  note-hash uniquification; public-data-write correctness) from 6a into
+  *proven-in-circuit*: the AVM's PIL relations constrain them
+  (`pil/vm2/opcodes/emit_notehash.pil`, `sstore.pil`, …) and the rollup
+  *recursively verifies the AVM proof* and binds the private↔AVM interface
+  (`public_tx_base_inputs_validator.nr:80,105-224`).
+- **6b — interpretation / equivalence:** "multiple encodings of the same
+  semantics must agree." **Irreducible.** Proving *creates a new encoding* (the
+  circuit/relations) that must now agree with (i) the intended spec — relation &
+  opcode-table completeness (`precomputed.pil` is trusted, not proven canonical)
+  — and (ii) the executor(s) that build blocks — the
+  *simulation ↔ constraining ↔ TS-simulator* equivalence, which is structurally
+  identical to Mina's native↔circuit seam.
+
+> **Proving converts 6a into 6b; it does not abolish bucket 6.** A proof is *of a
+> circuit*, and the circuit is *one encoding* of the intended semantics; something
+> outside the proof must vouch that the encoding matches intent (completeness) and
+> that the block-builder matches the encoding (equivalence). The more you prove,
+> the more 6a you retire and the more 6b you create.
+
+**Consequence for the model:** bucket 6 is **intrinsic** to any system complex
+enough to separate "execution" from "proof/replication of execution" — it is the
+one bucket that *survives maximal proving*. The three architectures differ only in
+*which form of 6b* they carry (consensus replication vs. native↔circuit vs.
+sim↔constrain↔reference). See `AUDIT-AZTEC-AVM-BUCKET6-TEST.md`.
+
 ---
 
 ## 5. The updated framework (six buckets)
@@ -204,6 +238,32 @@ If bucket 6 is real, the AVM's risks will cluster on 1, 2, and 5 — *deferred a
 imported correctness* — not on local opcode arithmetic. That is the falsifiable
 prediction this retrospective sets up.
 
+**Resolved (see `AUDIT-AZTEC-AVM-BUCKET6-TEST.md`):** the prediction held. Local
+opcode arithmetic, gas, bytecode binding, and the deferred invariants (X1/X3) are
+all *proven in-circuit*; the residual clustered exactly on **deferred/imported
+correctness** in its 6b form — relation/spec completeness and
+simulation↔constraining↔reference equivalence. Proving the public VM **retired 6a
+and exposed 6b** (Section 4b).
+
+---
+
+## 8. Comparative table
+
+| System | Dominant bucket | Debt type | Why it mattered | Outcome |
+|--------|-----------------|-----------|-----------------|---------|
+| **Zcash / Orchard** | 2 — witnessed objects | (historical) soundness | witnessed-point / setup soundness is where shielded value is forged or not | enforced today; the historical class that anchors bucket 2 |
+| **Namada MASP** | 3 — dual representations | **constraint debt** (governance) | `assets↔generator` equivalence enforced host-side at tree-build, not in-circuit; `UncheckedAllowedConversion` | governance-level constraint debt; **no untrusted path** (fed only by migrations) → not routed |
+| **Penumbra** | 5 — arithmetic / bounds | **hardening debt** | a mature shielded DEX: rounding pool-favorable & circuit-enforced, VCB-backstopped | residual = enable `overflow-checks`; a "round-once" precision nit; **no conservation failure** |
+| **Aztec** | 6 — settlement seams | **trust-boundary debt → then proven** | Outbox leaf-id L1 can't verify; kernel→AVM deferrals (6a) | 6a **retired by proving the AVM**; 6b remains (relation completeness + sim↔circuit) |
+| **Aleo** | 6 — settlement seams | enforced (+ bucket-5 hardening) | public state mutated by plaintext `finalize` re-executed under consensus, not proved | enforced by replication + future-binding; bucket-5 `.w` foot-gun at app level |
+| **Mina** | 6 (+ some 2) | **trust-boundary debt** | fully-succinct recursive chain = a stack of agreements | native↔circuit equivalence (6b) upheld by single-source code, not proven equivalent |
+
+Reading down the *Dominant bucket* column is the headline: as the systems get
+newer and more thoroughly proved, the dominant bucket migrates **2 → 3 → 5 → 6**,
+and within 6 the debt migrates **6a → 6b** (irreducible). Local cryptographic
+correctness becomes table stakes; **cross-layer / cross-encoding agreement
+becomes the frontier.**
+
 ---
 
 ## What this is and isn't
@@ -215,7 +275,10 @@ a written record that the framework generated proportional signal across
 ecosystems, and a sharpened six-bucket model for the next target.
 
 ## Companion reports
-`AUDIT-METHODOLOGY.md` (the nine phases) · `AUDIT-FINDINGS.md` (ecosystem/history)
-· `AUDIT-NAMADA-MASP.md`, `AUDIT-NAMADA-CALLSITES.md` · `AUDIT-PENUMBRA.md`,
+`AUDIT-METHODOLOGY.md` (the nine phases) · `AUDIT-METHODOLOGY-CHECKLIST.md`
+(one-page how-to) · `AUDIT-FINDINGS.md` (ecosystem/history) ·
+`AUDIT-NAMADA-MASP.md`, `AUDIT-NAMADA-CALLSITES.md` · `AUDIT-PENUMBRA.md`,
 `AUDIT-PENUMBRA-DEX-STAKE.md`, `AUDIT-PENUMBRA-AMOUNT-SWEEP.md` ·
-`AUDIT-AZTEC-PASS1-REPRESENTATION.md`, `AUDIT-AZTEC-PASS2-CONSERVATION.md`.
+`AUDIT-AZTEC-PASS1-REPRESENTATION.md`, `AUDIT-AZTEC-PASS2-CONSERVATION.md`,
+`AUDIT-AZTEC-AVM-BUCKET6-TEST.md` · `AUDIT-ALEO-SIX-BUCKET.md`,
+`AUDIT-MINA-SIX-BUCKET.md`.
