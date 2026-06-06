@@ -355,4 +355,5 @@ ecosystems, and a sharpened six-bucket model for the next target.
 `AUDIT-AZTEC-PASS1-REPRESENTATION.md`, `AUDIT-AZTEC-PASS2-CONSERVATION.md`,
 `AUDIT-AZTEC-AVM-BUCKET6-TEST.md` · `AUDIT-ALEO-SIX-BUCKET.md`,
 `AUDIT-MINA-SIX-BUCKET.md` · `AUDIT-BRIDGES-SIX-BUCKET.md` (generalization beyond
-zk).
+zk) · `AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
+memory → institutions).
