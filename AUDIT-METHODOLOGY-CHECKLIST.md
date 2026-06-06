@@ -70,3 +70,43 @@ Before calling anything a bug: **trace the writer and its trust boundary.**
 > If every review "finds a critical," the lens is broken. The lens is working when
 > it keeps re-deriving each system's *own* trust map — and the dominant bucket
 > migrates toward **cross-layer/cross-encoding agreement (6)** as systems mature.
+
+---
+
+## Epistemic Hygiene — audit your own evidence chain
+
+*Object-level review fails by **missing evidence** (compression); meta-level
+synthesis fails by **overgeneralization** (expansion). The strongest-sounding
+claim in a report is often carried by the weakest evidence chain — because local
+findings are constrained by reality and global ones are not. Run this on every
+significant conclusion.*
+
+1. [ ] What is **directly observed**?
+2. [ ] What evidence is **compressed** through summaries, reports, retrieval, or
+       delegation? *(A summary is a bridge — deflate it before counting it as
+       observation.)*
+3. [ ] What is **inferred** beyond the observation?
+4. [ ] **Induction risk** — how far beyond the sample is this generalizing?
+       *(population claimed vs. sample observed)*
+5. [ ] **Evidence-depth risk** — how much of the claimed object was actually
+       observed vs. trusted? *(claimed-about-the-instance vs. directly-seen-of-it
+       — orthogonal to #4: a historian can be low-depth/high-induction, an auditor
+       high-depth/low-induction; the dangerous claims are high on both.)*
+6. [ ] If this conclusion is wrong, **what observation would reverse it?**
+7. [ ] **Has such an observation been actively sought?**
+
+> **The self-sealing test is not "has the framework reversed."** Some correct
+> frameworks won't reverse for a long time. It is: **does the framework expose
+> itself to situations where reversal is possible?** The failure mode is not "no
+> reversals yet" — it is **"no conceivable observation would cause a reversal."**
+
+**What #7 enforces.** A review that only ever *finds → classifies → explains* a
+concentration is seeking confirmation. The next level of rigor is to go looking
+for **the system where the framework predicts concentration X and reality appears
+to produce Y** — not because the framework is probably wrong, but because that is
+where you learn the most if it is.
+
+**On expansion.** The goal is not to *minimize* it — generalization is where a
+framework's value lives — but to **disclose and price** it. State a high-expansion
+claim in the register of a hypothesis, not an observation. Undisclosed expansion
+(a 100:1 claim spoken in the voice of a 1:1 citation) is the only actual error.
