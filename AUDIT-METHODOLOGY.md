@@ -234,3 +234,14 @@ These questions tend to uncover the same bugs — from the defender's seat.
 |    5     | Multiple representations of asset ID    | Representation drift → value bugs        |
 
 Follow the money first. The cryptography can wait.
+
+---
+
+> **Update — six buckets.** After applying this methodology across Zcash/Orchard,
+> Namada MASP, Penumbra, and Aztec, the "first-week five" were refined into six,
+> promoting **arithmetic / bounds** to a first-class bucket and adding
+> **cross-layer settlement seams** (correctness that depends on independent
+> layers agreeing on a shared interpretation). See
+> [`AUDIT-METHODOLOGY-RETROSPECTIVE.md`](./AUDIT-METHODOLOGY-RETROSPECTIVE.md) for
+> what predictions succeeded, which failed, and the scoring refinement
+> (down-weight buckets 1–3 when structural defenses are present; up-weight 5–6).
