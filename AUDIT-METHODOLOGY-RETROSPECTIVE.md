@@ -307,6 +307,38 @@ another's account of reality, zk or not.
 
 ---
 
+## 10. The Compression/Expansion Axis
+
+*A correction surfaced by the reflexive test — applying the lens to the agent
+system running it — not a new target. It does not add a seventh bucket.*
+
+- It is **not a seventh bucket.** It is an **axis that cuts across all six**
+  (`embedding ≡ document` is Bucket 2; `model ≡ training distribution` is Bucket 4;
+  `summary ≡ evidence` is 6b — a pattern that appears in *every* bucket is an axis,
+  not a bucket).
+- **Compression** is large reality → smaller representation. It **fails by
+  omission** (load-bearing detail dropped).
+- **Expansion** is small representation → larger action/implementation. It **fails
+  by invention** (unwarranted detail confabulated).
+- A system's two boundaries are the two directions: **import = compression**
+  (reality → witnessed text), **export = expansion** (intent → effects).
+- **Scale-change without recomputation is the operational signature of 6b** — a
+  granularity change that no consumer ever decompresses is a trust boundary you
+  can locate *mechanically, before understanding the domain.*
+
+> **A summary is a bridge. The producer saw the source state; the consumer sees
+> only a commitment to it.**
+
+**The three front-door questions** (ask before the buckets):
+
+1. What equivalences must hold?
+2. Who or what discharges each equivalence — and does the consumer recompute, or
+   only trust?
+3. Where does representation granularity change — compressed on import, expanded
+   on export — and is that scale boundary verified?
+
+---
+
 ## What this is and isn't
 This is a defensive, public-information retrospective synthesizing reviews of
 open-source code at named commits. It demonstrates **no** vulnerability; every
