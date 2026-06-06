@@ -266,6 +266,47 @@ becomes the frontier.**
 
 ---
 
+## 9. Generalization beyond zk: the 6b residue (bridges)
+
+Applying the lens to cross-chain bridges — Wormhole, LayerZero v2, Hyperlane,
+which are *almost pure bucket 6* — closes the arc. A bridge connects two systems
+that **by construction cannot observe each other**, so "what happened on the
+source" must be imported by a third party. There is no 6a to retire; it is **pure
+6b**. (See `AUDIT-BRIDGES-SIX-BUCKET.md`.) That makes the bridges the cleanest
+statement of the whole investigation's thesis:
+
+> **Bucket 6b is the permanent residue in high-assurance systems: the place where
+> one representation of truth must be accepted as equivalent to another, but that
+> equivalence cannot be fully proven inside the system being verified.**
+
+Every system reviewed differs only in **how it discharges that one equivalence**:
+
+| System type | How 6b is discharged |
+|-------------|----------------------|
+| **Aleo** | deterministic consensus re-execution |
+| **Aztec** | proven public VM — but spec/circuit equivalence remains |
+| **Mina** | recursive proof stack — but native/circuit agreement remains |
+| **Committee bridges** | attester threshold signs source-truth |
+| **Light-client bridges** | destination verifies encoded source consensus |
+| **zk bridges** | destination verifies a *proof* of encoded source consensus |
+
+Read top-to-bottom, the discharge mechanism changes — re-execute, prove, recurse,
+trust a committee, verify an encoding, verify a proof of an encoding — but the
+*thing being discharged* never does: an equivalence between two representations of
+truth that the verifying system cannot fully close on its own. Proving moves it
+(6a → 6b); it never abolishes it.
+
+Which yields the framing that makes this a general systems tool, not a zk one:
+
+> **"Trustless" is usually a marketing term. The real question is *which
+> equivalence relation* is trusted, proven, replicated, or socially governed.**
+
+That question — *name the equivalence, then name who/what discharges it and how* —
+is the entire methodology, compressed. It applies wherever one system must accept
+another's account of reality, zk or not.
+
+---
+
 ## What this is and isn't
 This is a defensive, public-information retrospective synthesizing reviews of
 open-source code at named commits. It demonstrates **no** vulnerability; every
@@ -281,4 +322,5 @@ ecosystems, and a sharpened six-bucket model for the next target.
 `AUDIT-PENUMBRA-DEX-STAKE.md`, `AUDIT-PENUMBRA-AMOUNT-SWEEP.md` ·
 `AUDIT-AZTEC-PASS1-REPRESENTATION.md`, `AUDIT-AZTEC-PASS2-CONSERVATION.md`,
 `AUDIT-AZTEC-AVM-BUCKET6-TEST.md` · `AUDIT-ALEO-SIX-BUCKET.md`,
-`AUDIT-MINA-SIX-BUCKET.md`.
+`AUDIT-MINA-SIX-BUCKET.md` · `AUDIT-BRIDGES-SIX-BUCKET.md` (generalization beyond
+zk).
