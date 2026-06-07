@@ -10,8 +10,13 @@ object/account model and compare.
 ## Conservation floor — same as Sui (linear typing), confirmed
 `struct Coin<phantom CoinType> has store` (`coin.move:130`) — `store` without `copy`/`drop`, exactly
 like Sui's `Balance`. So a `Coin` cannot be duplicated or discarded by any accepted bytecode; the
-Move ability checker enforces it (verified at the verifier level for Move in Sui Pass 7 — Aptos runs
-its own Move fork of the same ability design). `extract` (`:939`) is the conserved split (assert
+Move ability checker enforces it. **[Self-check correction]** I originally extrapolated this from
+*Sui's* verifier (Pass 7); on review I read **Aptos's own** Move verifier
+(`third_party/move/move-bytecode-verifier/src/type_safety.rs`) and independently confirmed the same
+rules: `Pop → POP_WITHOUT_DROP_ABILITY` (`:620`), `CopyLoc → COPYLOC_WITHOUT_COPY_ABILITY` (`:838`),
+`ReadRef → READREF_WITHOUT_COPY_ABILITY` (`:991`), plus a `WriteRef`-needs-`drop` check (`:1011`). So
+the floor is now verified on Aptos's actual verifier, not assumed from Sui's. `extract` (`:939`) is
+the conserved split (assert
 `value >= amount` → decrement → return `Coin{amount}`), and it carries **Move Prover `spec` blocks
 tracking a ghost `supply`** — Aptos *formally specifies* the conservation, not just asserts it.
 `mint`/`burn` are gated by `MintCapability`/`BurnCapability`. **enforced.**
