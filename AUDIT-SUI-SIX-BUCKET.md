@@ -298,8 +298,9 @@ mint amount is correct." It cannot see that.
 - ~~The stake-subsidy fund's own conservation (`stake_subsidy.move::advance_epoch`)~~ —
   **now covered in the Addendum below (Pass 2).** Short version: there is no genuinely new
   issuance; the subsidy is a drawdown of a genesis-pre-allocated `Balance<SUI>`.
-- `validator_set.move` reward distribution / slashing arithmetic — only its `advance_epoch`
-  signature was read.
+- ~~`validator_set.move` reward distribution / slashing arithmetic~~ — **now covered in
+  the Addendum below (Pass 3).** Conservation is type-enforced; every arithmetic residual
+  degrades to a checked abort, never to minted/burned SUI.
 - Older execution-adapter versions (`v0`–`v3`) — they carry the same call sites but were
   not diffed against `latest`.
 
@@ -394,6 +395,116 @@ pass), neither of which raises total supply.
   `counter == 540` guard is a one-shot (after catch-up the counter exceeds 540 and the
   branch is never re-entered). It is *evidence* that the safe-mode degradation path is
   real and has been exercised — a good audit signal, not a defect. **enforced / bounded.**
+
+---
+
+# Addendum — Pass 3: Reward distribution & slashing arithmetic (`validator_set.move`)
+
+Passes 1–2 established that SUI is conserved per-epoch and fixed globally. This pass
+reads the *inside* of the epoch reward split — `validator_set::advance_epoch` and its
+`mul_div!` proportional math — to check whether the distribution itself can leak, mint,
+or misallocate value. The conclusion is the strongest structural one in the report:
+**the reward arithmetic does not need to be correct for conservation to hold; it only
+needs to be not-too-large.** Linear typing carries the invariant; the numbers are
+advisory.
+
+### Conservation is enforced by the `Balance` type, not by the amount math
+
+`advance_epoch` (`sui_system_state_inner.move:959`) passes `computation_reward` and
+`storage_fund_reward` **by `&mut`** into `validators.advance_epoch`, which computes a
+vector of per-validator amounts and then `split`s them out (`validator_set.move:1197`,
+`:1207`, `:1210`). The amounts come from `compute_unadjusted_reward_distribution` /
+`compute_adjusted_reward_distribution`. But note what actually moves value: every payout
+is a `Balance::split`, which **asserts `self.value >= value`** (`balance.move:84`).
+
+Therefore, whatever the amount vectors say:
+- If they sum to **more** than the balance, the offending `split` *aborts* — the epoch
+  tx fails and falls into safe mode (the seam from Pass 1), distributing nothing
+  improperly. No over-payment is possible.
+- If they sum to **less** (the normal case, due to integer truncation), the remainder
+  stays in the `&mut` balances and is **explicitly swept to the storage fund**:
+
+```move
+// sui_system_state_inner.move:983
+// Because of precision issues with integer divisions, we expect that there will be some
+// remaining balance ... All of these go to the storage fund.
+let mut leftover_staking_rewards = storage_fund_reward;
+leftover_staking_rewards.join(computation_reward);   // :987 — dust captured, not dropped
+```
+
+So no SUI is minted (splits can't exceed the balance) and none vanishes (`Balance` has
+no `drop`; the dust is `join`ed onward). The code even keeps an explicit **recompute
+witness** of how much left each balance:
+
+```move
+let computation_reward_distributed =                 // :974
+    computation_reward_amount_before_distribution - computation_reward_amount_after_distribution;
+```
+
+**Verdict: enforced invariant** — distribution conservation is a property of the linear
+`Balance` type, independent of the correctness of the `mul_div!` results.
+
+### The slashing redistribution is exactly conservative (modulo dust)
+
+`compute_reward_adjustments` (`:1007`) accumulates `total_staking_reward_adjustment` in
+lockstep with each `individual_staking_reward_adjustment` it records (`:1033`–`:1035`).
+In `compute_adjusted_reward_distribution`, slashed validators have their adjustment
+*subtracted* (`:1151`), and unslashed validators have a proportional share of the same
+total *added* (`:1155`–`:1161`, by `mul_div!(total_adjustment, voting_power,
+total_unslashed_voting_power)`). The amount removed from the punished set therefore
+equals the amount redistributed to the honest set, up to the truncation in the
+proportional `mul_div!` — and that truncation is, again, swept to the storage fund.
+**Slashed rewards are never burned and never minted; they flow to honest validators or
+to the storage fund.** Slashing here is a *re-routing* of reward flow, not a destruction
+of SUI. **enforced invariant** (re-routing conserved by linear typing).
+
+### Arithmetic / bounds (Bucket 5, the dangerous part)
+
+`mul_div!` is `((a as u128) * (b as u128) / (c as u128)) as u64` (`:1312`).
+
+- **Multiplication overflow:** none. `u64::MAX² < 2¹²⁸`, so the `u128` product never
+  overflows — this is exactly what the `as u128` widening buys. **enforced by constraint.**
+- **The final `as u64` cast:** Move casts are *checked* — a `u128 → u64` that exceeds
+  `u64::MAX` **aborts**, it does not wrap. For the share computations (`mul_div(vp_i,
+  total, total_vp)` with `vp_i ≤ total_vp`) the result is provably `≤ total ≤ u64::MAX`,
+  so the cast is safe by construction. For the storage-fund-reward computation at
+  `sui_system_state_inner.move:937` (`mul_div(storage_fund_balance, computation_charge,
+  total_stake)`) the `≤ u64::MAX` bound relies on the *economic* invariant
+  `computation_charge ≤ total_stake` (epoch gas fees are tiny next to total staked SUI),
+  which is **not asserted in code**. If it were ever violated, the result is a **checked
+  abort → safe mode**, not value creation. **bounds debt (liveness-only; not exploitable).**
+- **Division by zero:** the denominators are `total_voting_power` (a constant `10000`,
+  never zero — `voting_power.move`), `total_stake`/`length`/`num_unslashed_validators`,
+  and `total_unslashed_validator_voting_power`. The last two appear **only** inside the
+  *unslashed* branch (`:1155`, `:1175`), which by construction is reached only when there
+  is ≥ 1 unslashed validator, so the divisor is ≥ 1 there. `length`/`total_stake` rely on
+  the system invariant "the active validator set is non-empty with non-zero stake"
+  (`distribute_reward` asserts `length > 0`, `:1193`, though `compute_unadjusted` divides
+  by `length` slightly earlier). **constraint debt** — depends on a system invariant
+  rather than a local guard; a violation is an abort, not a leak.
+- **Slashing-rate underflow:** the slashed-validator path computes
+  `unadjusted - adjustment` (`:1151`) where `adjustment = mul_div(unadjusted, rate,
+  10000)`. This is `≤ unadjusted` **iff `rate ≤ 10000`**. `reward_slashing_rate` is a
+  protocol-config value; if it exceeded `10000` the subtraction would underflow-abort.
+  Trusted config, not user input — **constraint debt**, abort not leak.
+
+### Where this lands
+
+| Subject | Verdict |
+|---|---|
+| Reward distribution conservation | **enforced invariant** — `split` assert + dust swept to storage fund; amounts are advisory |
+| Slashing redistribution | **enforced invariant** — re-routing; `total == Σ individual` by construction; conserved modulo dust |
+| `mul_div!` multiplication | **enforced** — `u128` widening; no product overflow |
+| `mul_div!` final `as u64` (share math) | **enforced** — bounded `≤ total` by construction (Move cast is checked) |
+| `mul_div!` final `as u64` (storage-fund reward, `:937`) | **bounds debt** — relies on unasserted economic bound; violation aborts, not leaks |
+| Division-by-zero guards | **constraint debt** — rely on system invariants / control flow, not local asserts; violations abort |
+| Slashing-rate `≤ 10000` | **constraint debt** — trusted protocol config; violation aborts |
+
+**The throughline of Pass 3:** Sui's reward math is allowed to be imprecise (and it is —
+it truncates everywhere) without ever threatening conservation, because the *type system*,
+not the *arithmetic*, is load-bearing. Every residual above degrades to a **checked
+abort** (→ safe mode), never to minted or burned SUI. That is the right place for the
+fragility to live.
 
 ---
 
