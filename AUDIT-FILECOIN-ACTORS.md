@@ -103,3 +103,38 @@ No untrusted-input→value path found in the audited surfaces; nothing to disclo
 trust is **PoRep/PoSt soundness** (is the storage backing the value actually real), with FVM transfer
 atomicity assumed from `ref-fvm`. Next pulls: the market actor's deal-collateral escrow and the
 `ref-fvm` send primitive.
+
+---
+
+# Addendum — the PoRep/PoSt "is storage real" residual, narrowed (actor-level enforcement opened)
+
+The main audit named PoRep/PoSt soundness as Filecoin's deep irreducible trust. I opened the
+**actor-level enforcement** (`actors/miner/src/lib.rs`) and it decomposes the same way the rollup
+oracles did (`AUDIT-ROLLUP-ORACLES-RESIDUALS.md`): a verifiable on-chain half + an irreducible
+cryptographic half.
+
+**On-chain enforcement (verified clean) — `verify_windowed_post` (`:4531-4575`):**
+- **Challenge randomness is beacon-derived, not prover-chosen.** It regenerates the challenge via
+  `rt.get_randomness_from_beacon(WindowedPoStChallengeSeed, challenge_epoch, entropy)` (`:4549-4553`),
+  with entropy bound to the miner address — so a prover **cannot grind a favorable challenge**; the
+  challenge is fixed by on-chain drand beacon randomness at the challenge epoch. This is the
+  load-bearing anti-grinding property and it is enforced in-actor.
+- **The proof is bound to the right public inputs:** the `WindowPoStVerifyInfo` ties the proof to the
+  **specific `sealed_cid`s** of the challenged sectors (`:4555-4562`) and the **prover's miner ID**
+  (`:4569`) — so a proof for other data or another miner won't verify.
+- **Fault-on-failure:** a sector that isn't proven in its deadline is marked faulty and **penalized
+  (collateral burned)** — the economic enforcement that makes the storage commitment real. PoRep is
+  the symmetric story: `prove_commit`/`batch_verify_seals` (`:1569`) and
+  `verify_aggregate_seals` (`:4911`) bind the seal proof to chain-derived seal randomness
+  (`SectorSealProofInput.randomness`/`interactive_randomness`, `:4577+`) before a sector gains power.
+
+**Irreducible residual (narrowed):** the actual cryptographic check is `rt.verify_post(&pv_info)`
+(`:4573`) — a **runtime syscall** implemented by the proofs subsystem (`filecoin-proofs` /
+`rust-fil-proofs`, Groth16/`bellperson` SNARKs over the PoRep/PoSt circuits), not in these actors. So
+the residual narrows from "trust PoRep/PoSt" to specifically: **the `verify_post`/`verify_seal` syscall
+soundly verifies the SNARK, and the PoRep/PoSt construction genuinely implies unique replicated storage**
+(SNARK soundness + the proof-of-replication security argument + trusted setup). That is a
+**cryptographic-soundness** residual (like zkSync's circuit), irreducible under hardness assumptions —
+*not* the equivalence-style residual of Optimism's emulator. The actor correctly *gates* on it with a
+non-grindable, public-input-bound challenge; only the syscall's cryptographic soundness remains. **No
+finding.**
