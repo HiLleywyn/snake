@@ -198,3 +198,32 @@ conservation shape to the corpus, and each bottoms out on the same family of res
 observation, Liquity oracle, Alchemix yield-token value, Reserve collateral plugins). The down-market
 lesson holds: established mid-caps are well-defended; the trust keeps relocating to the value-reporting
 boundary, never disappearing.
+
+## 7. EigenLayer (EIGEN) — restaking: shares + slashing factor + slash-through-escrow (clean)
+**Target:** `Layr-Labs/eigenlayer-contracts`, `src/contracts/core/{DelegationManager,StrategyManager}.sol`
++ `strategies/StrategyBase.sol`. Novel: staked ETH/LSTs are *re-used* to secure other services (AVSs),
+so the conservation question is whether the slashing + withdrawal accounting prevents stake from being
+double-counted or escaping a slash.
+- **Shares↔underlying is inflation-resistant by design.** `StrategyBase` uses the **virtual-shares
+  mitigation** (`SHARES_OFFSET = BALANCE_OFFSET = 1e3`, `:38-42`): `newShares = amount·(priorShares+
+  OFFSET)/(virtualPriorBalance)` (`:115`), withdrawal mirrors (`:155`). So the first-depositor/donation
+  share-inflation bug class (the one I flagged for lending forks) is explicitly closed here.
+- **Slashing = proportional share reduction.** A slash reduces an operator's `maxMagnitude`, and the
+  `slashingFactor`/`depositScalingFactor` scales *all* delegated shares down proportionally
+  (`calcWithdrawable`, `_getSlashingFactors`) — no per-account special-casing that could desync the
+  pool.
+- **The load-bearing invariant — you can't withdraw to dodge a slash.** `_completeQueuedWithdrawal`
+  (`:535`): `slashableUntil = withdrawal.startBlock + MIN_WITHDRAWAL_DELAY_BLOCKS`;
+  `require(block.number > slashableUntil)` — a queued withdrawal **stays slashable for the whole delay**,
+  and completion applies `_getSlashingFactorsAtBlock(...)` so any slash that lands during the escrow
+  **reduces the withdrawable amount**. So exiting ahead of a slash is impossible; the escrow is the
+  slash-settlement window. This is restaking's central safety property, enforced in code.
+**Conservation floor: sound** — shares are inflation-resistant, slashing proportionally reduces all
+shares (including in-flight withdrawals), and the withdrawal delay keeps stake slashable until the slash
+window closes. The "double-use" of stake is bounded: a slash hits every delegation of that operator at
+once. **Residual:** the **slashing trigger** — who decides a slash is the AVS + `AllocationManager`
+(off-chain/AVS correctness, the irreducible "is the slash justified" trust), and the **EigenPod
+beacon-chain balance proofs** (native restaking proves validator balances via beacon Merkle proofs — a
+proof-soundness residual, same shape as the rollup oracles §4h). **No finding.**
+
+---
