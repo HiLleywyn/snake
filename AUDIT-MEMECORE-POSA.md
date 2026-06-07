@@ -139,6 +139,42 @@ geth secp256k1/state machinery. **inherited; the PoSA-specific signer handling i
 - Everything inherited from upstream geth (EVM, txpool, p2p, trie) — treated as high-evidence
   inherited code.
 
+## Addendum — Pass 2: sealing cadence & epoch validator transition (largely standard / sound)
+
+Read after the disclosure of §6-B/C, to characterize the rest of the engine. Conclusion: it is
+conventional clique/parlia and sound at the import gate — which keeps §6-B/C as the standouts.
+
+- **Anti-domination & in-turn (inherited clique, correct).** `verifySeal` (`posa.go:551`) and
+  `apply` (`snapshot.go:138`) enforce `errRecentlySigned` with the classic bound `limit =
+  len(Signers)/2 + 1` — a validator cannot re-sign within half-the-set blocks, so single-
+  validator domination requires >½ collusion. In-turn vs no-turn difficulty
+  (`diffInTurn=2`/`diffNoTurn=1`) is checked against `snap.inturn` (`:575`). The checkpoint
+  signer auth check precedes `inturn`, so an empty/forged set fails authorization
+  (`errUnauthorizedSigner`) rather than reaching the `% len(signers)` division. **enforced.**
+- **Epoch transition is contract-gated at import (sound, parlia-style).** At a checkpoint the
+  snapshot **replaces** `Signers` wholesale from `header.Extra` (`snapshot.go:147–152`); the
+  authenticity of that list is enforced in `Finalize → verifyValidators` (`posa.go:436`), which
+  requires `header.Extra == sort(getValidators(@0x…0002, parent))`. The producer side
+  (`prepareValidators`, `:639`) builds `header.Extra` from the same sorted contract output —
+  **symmetric**, and **both** the validators list and the reward-call validators are sorted on
+  this path (note: the *reward-call* list in §6-C is the one that is **not** sorted —
+  `contract.go` builds it from a map without sorting, unlike here). **enforced at import.**
+- **Deferred-verification seam (6a, hedged).** The *snapshot / header-verification* path trusts
+  `header.Extra`'s validator set **before** the `Finalize` contract check — i.e. `verifySeal`
+  authorizes signers from a snapshot whose checkpoint set is not yet contract-verified. This
+  matches parlia (verification deferred to full block import, which is the canonical gate, so a
+  forged-checkpoint branch cannot finalize state). It is called out only so the team can confirm
+  no sync mode makes an **irreversible** trust decision on the pre-`Finalize` snapshot. **named,
+  matches known-good pattern.**
+- **Reinforces the ceiling.** Unlike clique's vote-evolved signer set, MemeCore **replaces** the
+  set from the `0x…0002` contract each epoch with no on-chain-history self-consistency — so that
+  contract (and its upgrade authority) is the *absolute* authority over validator membership.
+  Strengthens the governance-ceiling note above.
+
+**Pass-2 verdict:** the sealing/epoch machinery is standard and sound at the import gate; the
+two consensus-robustness items worth fixing remain **§6-B (swallowed system-call error)** and
+**§6-C (unsorted reward-call validator list)**, both already routed privately.
+
 ## Responsible-disclosure note
 
 Items **§6-B and §6-C together describe a *latent* consensus-robustness concern** (swallowed
