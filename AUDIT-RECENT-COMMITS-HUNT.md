@@ -72,3 +72,41 @@ freshest consensus code in the two major EL clients handles the MemeCore-class d
 correctly, and the cross-client divergence risk is centralized into a shared canonical encoder + spec
 test vectors. The honest residual is the shared-encoder byte-agreement (test-vector territory) — to
 re-verify when the fork activates. **No finding.**
+
+---
+
+## R3. Optimism Superchain interop — `CrossL2Inbox` cross-chain message validation (clean by design; security is off-chain)
+**Target:** `ethereum-optimism/optimism` (history clone), `packages/contracts-bedrock/src/L2/CrossL2Inbox.sol`.
+The freshest *value-critical cross-chain* feature (Superchain interop — execute a message on chain B
+that was emitted on chain A). The classic cross-chain bug class is **value-from-a-fake-message**: can an
+executing message be validated without a real source? Recent history is dominated by interop "failsafe"
+work (`#21205` dedicated failsafe RPC error, `#21151`/`#21115` failsafe metrics) — a kill-switch design.
+- **The on-chain check is intentionally minimal — and alone is NOT the security boundary.**
+  `validateMessage` (`:76-82`) computes a `checksum` of the message `Identifier`+`msgHash` and only does
+  `(bool isWarm,) = _isWarm(checksum); if (!isWarm) revert NotInAccessList();` then emits
+  `ExecutingMessage`. `_isWarm` literally measures the **EIP-2930 access-list warmth** of the checksum
+  slot. **The access list is sender-controlled** — so the *contract by itself* would let a tx self-warm
+  the checksum of a fabricated message and pass. This is **by design**, not a bug: the checksum is a
+  **type-3 access-list entry** (`_TYPE_3_MASK`, `:111`).
+- **The real validation is the off-chain derivation rule.** Safety comes from the protocol layer: the
+  **op-supervisor + the block-derivation rule reject any block whose type-3 interop access-list entries
+  don't correspond to a valid, existing, in-dependency-set, non-reorged source message.** So warmth
+  (necessary, on-chain) ∧ "every interop access-list entry maps to a real message" (sufficient,
+  off-chain derivation) = the full check. The contract is a gas-cheap hook; the **derivation/supervisor
+  is the security boundary** (and the `failsafe` is the anomaly kill-switch over it).
+**Result: clean by design** — the minimal on-chain `validateMessage` is *not* exploitable in context
+because the derivation layer rejects blocks with unbacked interop access-list entries. **Residual (large,
+and precisely located):** the **op-supervisor / op-node derivation** that enforces "interop access-list
+entry ⟺ valid source message" — that off-chain Go is the actual cross-chain safety boundary and the
+real audit target (not opened here; it's the irreducible interop trust, same shape as §4f settlement
+seams). **No finding** — but the honest note: reading *only* the contract would look broken; safety lives
+in the derivation rule, which I did not open.
+
+### Recent-commits hunt status (3 entries)
+R1 geth BAL construction (canonical sort — clean), R2 reth BAL validation (recompute+hash, shared
+encoder — clean, pre-fork), R3 op-stack interop `CrossL2Inbox` (minimal on-chain gate; security
+relocated to off-chain derivation — clean by design). Pattern across the freshest code in the major
+EL/L2 stacks: the on-chain/consensus components handle determinism correctly **and** increasingly
+*relocate* the heavy validation to shared canonical encoders (alloy) and off-chain
+supervisors/derivation — so the residual is consistently a **cross-client encoder agreement** or an
+**off-chain validator**, exactly the "name the oracle" shape (§4h). No findings.
