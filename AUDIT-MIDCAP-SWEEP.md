@@ -227,3 +227,27 @@ beacon-chain balance proofs** (native restaking proves validator balances via be
 proof-soundness residual, same shape as the rollup oracles §4h). **No finding.**
 
 ---
+
+## 8. Curve StableSwap-NG (CRV) — amplified-invariant AMM with converge-or-revert (clean)
+**Target:** `curvefi/stableswap-ng`, `contracts/main/CurveStableSwapNG{,Math}.vy` (Vyper). The distinct
+AMM math (vs constant-product): the **StableSwap invariant** `A·nⁿ·Σx + D = A·D·nⁿ + Dⁿ⁺¹/(nⁿ·Πx)`,
+the parent of countless stableswap forks.
+- **Invariant solved by Newton, converge-or-revert.** `get_D` and `get_y` (`Math.vy:90,18`) iterate
+  (≤255 rounds) and return only when `|Δ| <= 1` wei; if they never converge they **`raise`** (`:85,138`)
+  — a non-converging invariant solve **reverts** rather than returning a wrong `D`/`y`. So a swap can
+  never settle on a mis-solved curve.
+- **Swaps preserve `D`; dy rounds down; fees grow `D`.** `_exchange` (`NG.vy`): `x = xp[i] + dx`,
+  `dy = __exchange(...)` solves `get_y` keeping `D` constant, then subtracts the fee and rounds the
+  output **down** (pool-favorable); the recomputed `D` only ever grows by the fee → **LP value is
+  monotonic up**, no per-swap leak. `assert dy >= _min_dy` (slippage). `add_liquidity` asserts
+  `D1 > D0` (`:615`).
+- **Considered edge guards.** Rebasing tokens are explicitly handled (`exchange_received` reverts if the
+  pool contains rebasing tokens, `:556`) — the exact Uniswap-fork assumption-break I flagged, defended
+  here.
+**Conservation floor: sound** — the amplified invariant is preserved across swaps with converge-or-revert
+solving, output rounded toward the pool, and fees monotonically growing LP value. **Residual:** the
+**amplification `A`** is governance-set and ramped (affects peg dynamics, not conservation), and the
+built-in **EMA price oracle** (used by metapools / integrators) is the usual external-consumer 6b. **No
+finding.**
+
+---
