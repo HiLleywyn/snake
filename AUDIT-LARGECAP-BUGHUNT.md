@@ -150,3 +150,32 @@ state-sync, DAG epoch-seal, and a custom fee/conservation path — **all clean**
 and on conservation. The custom fee path (Celo) is the most conservation-relevant edit and it balances
 to the wei. Consistent result: large-cap deltas are carefully engineered; the trust sits at governance
 (allowlists, upgrade authority) and oracle inputs, not at exploitable code bugs.
+
+---
+
+## L5. Cronos (CRO) — EVM `bank` precompile: caller-namespaced mint/burn (clean)
+**Target:** `crypto-org-chain/cronos` HEAD `6385c1c`, `x/cronos/keeper/precompiles/bank.go`. Cronos's
+custom delta (the `x/evm` core is an Ethermint dependency) includes a **bank precompile** exposing
+cosmos `MintCoins`/`BurnCoins`/`SendCoins` to EVM contracts — a high-risk conservation surface (EVM code
+that can mint/burn native coins). Hunted authorization + conservation.
+- **The authorization model is caller-namespacing — clean.** The mint/burn denom is
+  `denom := EVMDenom(contract.Caller())` (`:130`), and `EVMDenom(token) = EVMDenomPrefix + token.Hex()`
+  (`:56-58`). So a contract can mint/burn **only the denom keyed to its own address** — it cannot touch
+  another contract's denom. Each EVM contract controls exactly its own native-coin supply (the correct,
+  token-contract-like authorization). **No cross-contract mint.**
+- **Conserving + guarded.** Mint = `MintCoins(module)` → `SendCoinsFromModuleToAccount(addr)`; Burn =
+  `SendCoinsFromAccountToModule(addr)` → `BurnCoins(module)` (`:137-148`) — the checked bank ops
+  (`AUDIT-COSMOS-BANK.md`), conserving 1:1. Amount validated ("invalid amount", `:124`), recipient
+  blocklist-checked (`checkBlockedAddr`, `:92-98`), and the whole action runs in
+  `stateDB.ExecuteNativeAction` (`:132`) so it is **journaled and reverts atomically** with the EVM tx.
+**Result: clean** — caller-namespaced denom is the load-bearing authorization (a contract can only mint
+its own token), conservation rides the checked bank keeper, and the action is atomic with the EVM tx.
+**Residual:** the native CRO↔EVM balance sync + 18-vs-native-decimal conversion lives in the **Ethermint
+dependency** (not in-repo), and precompile registration / module permissions (`permissions.go`) is the
+governance surface. **No finding.**
+
+## L6. Mantle (MNT) — skipped (repo is deprecated l2geth)
+The public `mantlenetworkio/mantle` is the **pre-bedrock l2geth** stack (v0.4.3); current Mantle runs an
+op-geth fork (MNT as gas token, EigenDA), which is a separate repo not pulled here. Auditing the dead
+l2geth has no live value. **Not audited** (would need the current op-geth fork to check the MNT
+gas-token fee path, analogous to Celo L4). Noted for honesty, not a result.
