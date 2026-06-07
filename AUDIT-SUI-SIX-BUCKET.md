@@ -724,6 +724,155 @@ welds key to address.
 
 ---
 
+# Addendum — Pass 6: the MemeCore-class check (determinism + enforced-not-swallowed system calls)
+
+*Motivated by the one real finding elsewhere in the corpus (`AUDIT-MEMECORE-POSA.md` §6-B/C): a PoSA
+chain whose epoch reward system-call (a) **swallowed** the call's error (a reverting call still
+produced a "valid" block) and (b) built the validator list from a **Go map** (non-deterministic
+iteration) and passed it unsorted into the state-changing call — together a latent silent-consensus-
+split. This pass re-examines Sui's epoch-change for that exact failure class. Sui is structurally
+immune on both axes, and for an architectural reason.*
+
+### Axis A — system-call results are enforced, not swallowed (the §6-B analog)
+
+Sui's epoch transition (`execution_engine.rs::advance_epoch`) executes the whole mint→`advance_epoch`
+→destroy-rebate PT atomically and **branches on the result** (`:1322`):
+
+```rust
+let result = SPT::execute::<System>(... advance_epoch_pt ...);
+if let Err(err) = &result {
+    tracing::error!("Failed to execute advance epoch transaction. Switching to safe mode. ...");
+    temporary_store.drop_writes();                 // discard the failed partial state
+    gas_charger.reset_storage_cost_and_rebate();
+    temporary_store.advance_epoch_safe_mode(&params, protocol_config);   // defined fallback
+}
+```
+
+The opposite of MemeCore: a failing epoch call **cannot silently proceed**. On error Sui *drops the
+writes* and takes an explicit, defined **safe-mode** path (rewards parked on the `0x5` object, no
+distribution). And the branch decision is the **deterministic** Move-execution `result`, so **all
+validators take the same branch identically** → no node commits "normal epoch" while another commits
+"safe mode." (The `#[cfg(msim)] maybe_modify_result_for` at `:1319` is a **simulation-test-only**
+injection used to *exercise* safe mode, not a production path.) **enforced — failure is handled, not
+swallowed; the success/safe-mode decision is deterministic across validators.**
+
+### Axis B — no non-deterministic iteration feeds committed state (the §6-C analog)
+
+MemeCore's split risk came from `for validator := range goMap` (randomized order) flowing into a
+state-changing call. In Sui:
+- **Rust execution adapter uses ordered maps exclusively** — `execution_engine.rs` + `temporary_store.rs`:
+  **42 `BTreeMap`, 0 `HashMap`/`IndexMap`**. Modified/written objects are `BTreeMap`/`BTreeSet`
+  (sorted keys); accumulator events iterate an ordered `Vec` (`.iter().enumerate()`). Iteration order
+  is therefore identical on every validator.
+- **Move has no `HashMap`.** The validator set is `active_validators: vector<Validator>`
+  (`validator_set.move:62`) — an *ordered vector* that is part of the shared system-state object
+  (byte-identical on all validators); reward distribution iterates it by index (Pass 3). `VecMap`
+  (report records, voting powers) is insertion-ordered. **No structure whose iteration order varies
+  across nodes ever feeds the committed state root.** **enforced — deterministic by container choice.**
+
+### Why Sui is immune by construction
+
+Sui is a BFT system where **all validators must agree on transaction effects**, so deterministic
+execution is a hard requirement, not a nicety — hence ordered containers everywhere and explicit
+failure handling. MemeCore inherited a clique/parlia PoSA where each validator *produces* blocks, and
+the laxity crept into the off-Move glue (the Go reward-call construction). The general, checkable
+property the contrast yields:
+
+> **Determinism-safety for any consensus state transition = (ordered containers only, no map-iteration
+> into committed state) + (system-call results enforced, never swallowed).** Sui satisfies both;
+> MemeCore violated both in one function.
+
+One related note (the *right* direction): Sui's epoch path uses **deterministic `.expect()`/panics**
+(e.g. "System Package Publish must succeed", `:1397`) on conditions that hold identically on all
+validators — so a bad state causes a **coordinated all-validator halt** (recoverable, agreed) rather
+than a *silent divergence*. Preferring all-halt over silent-split is exactly the discipline MemeCore's
+swallowed error lacked. **noted — correct failure philosophy.**
+
+**Pass-6 verdict: Sui is structurally immune to the MemeCore failure class** — enforced (not swallowed)
+deterministic safe-mode on epoch-call failure, and deterministic iteration (BTreeMap/ordered-vector
+only) into all committed state. The itch is scratched: the bug that exists in MemeCore *cannot* take
+the same form here, by Sui's architecture.
+
+---
+
+# Addendum — Pass 7: opening the load-bearing assumption — the bytecode verifier *actually* enforces linear typing
+
+*Every "enforced invariant" verdict in this report for user-coin conservation rests on one claim I
+had been **assuming**: that the Move bytecode verifier genuinely forbids copying a no-`copy` value and
+discarding a no-`drop` value. If that pass has a hole, `Balance<T>` is forgeable/vanishable and the
+"strongest floor in the corpus" collapses. So I opened it (`external-crates/move/crates/
+move-bytecode-verifier`). It holds — and it is **complete**, not partial.*
+
+A value can only be illegitimately created or destroyed via a small, enumerable set of bytecodes.
+The verifier gates **every one** of them on the relevant ability:
+
+**Duplication (must have `copy`):**
+- `Bytecode::CopyLoc` → `if !abilities.has_copy() → COPYLOC_WITHOUT_COPY_ABILITY`
+  (`type_safety.rs:722`). `MoveLoc` (the linear move) needs no copy and *consumes* the local.
+- `Bytecode::ReadRef` → reading the pointee through a `&`/`&mut` requires `has_copy()`, else
+  `READREF_WITHOUT_COPY_ABILITY` (`:789`). Closes the `*&balance` clone path.
+
+**Destruction (must have `drop`):**
+- `Bytecode::Pop` → `if !abilities.has_drop() → POP_WITHOUT_DROP_ABILITY` (`:611`). Can't discard
+  a stack value.
+- `Bytecode::StLoc` over a local that is `Available`/`MaybeAvailable` and `!has_drop()` → error
+  (`locals_safety/mod.rs:46`). Can't overwrite a slot still holding a `Balance` (that would
+  implicitly drop it).
+- `Bytecode::Ret` with any `Available`/`MaybeAvailable` local that is `!has_drop()` → error
+  (`locals_safety/mod.rs:78`). Can't return leaving a `Balance` in a local — it must be moved into
+  the return value / another struct, or explicitly destroyed via `decrease_supply`/`destroy_zero`.
+
+That is the **complete set** of duplicate/discard paths, and all five are ability-gated. Therefore a
+`Balance<T>` (`store`, no `copy`, no `drop`) **cannot be forged or vanished by any bytecode sequence
+the verifier accepts** — the `Σ Balance == Supply.value` invariant is enforced at *publish time*, as
+claimed. The `MaybeAvailable` lattice state (a local that holds a value on some control-flow paths
+but not others, after a branch join) is treated like `Available` for these drop checks — the
+*conservative, correct* choice (if it *might* hold a non-drop value, you can't implicitly drop it).
+
+**Verdict: the load-bearing assumption is verified, not assumed.** The "strongest conservation floor
+in the corpus" claim now rests on read code, not faith.
+
+### The honest residual that remains (what "opening it" did and didn't settle)
+
+I verified the **rules** (the per-instruction ability checks) are correct and complete, and then
+opened the one pass that could *bypass* them — references:
+
+- **`reference_safety` closes the reference-escape route (opened, confirmed).** Its stated guarantees
+  are "no dangling references, accesses to mutable references are safe, global-storage references are
+  safe," and the two checks that matter for linearity are enforced over a **borrow graph**:
+  `move_loc` errors with `MOVELOC_EXISTS_BORROW_ERROR` (`abstract_state.rs:444`) if you try to move a
+  value out of a local **while a reference into it is live**, and `ret` errors with
+  `RET_BORROWED_MUTABLE_REFERENCE_ERROR` (`:856`) if a reference would **escape the function** pointing
+  at a local. Combined with Pass-7's `ReadRef`-needs-`copy` rule, references therefore **cannot** be
+  used to clone or smuggle out a no-`copy`/no-`drop` value. So the linear guarantee holds across
+  *both* the ability checks and the borrow checker that could otherwise circumvent them.
+
+**The dataflow engine — opened to the bedrock (`absint.rs`).** I then opened the framework that
+applies those rules to every path. `analyze_function` (`:58`) builds a control-flow graph from the
+**code *and* jump tables** (`VMControlFlowGraph::new`, `:104` — so every branch/switch path is in the
+graph) and delegates to the shared `absint::analyze_function` worklist. The wiring confirms the three
+soundness properties:
+- **all branches visited** — `visit_successor` is called per successor (`:189`);
+- **loops iterated to a fixpoint** — explicit `visit_back_edge` handling with per-back-edge metering
+  (`:144`,`:193`), i.e. blocks are re-analyzed until states stop changing (`JoinResult::Changed` vs
+  `Unchanged`);
+- **merges joined conservatively** — `join` delegates to the State's lattice `join` (`:170`), the same
+  merge that produces `MaybeAvailable` (treated as "still holds a value") at branch joins.
+
+So the transfer rules (ability + reference) are applied by a fixpoint engine to **every reachable
+abstract state over a complete CFG**, with conservative joins. The chain "a `Balance` cannot be forged
+or vanished" is now traced end-to-end: ability rules → borrow checker → CFG-complete fixpoint engine.
+
+**The true, irreducible residual:** below this wrapper sits the shared **`move-abstract-interpreter`**
+crate — the canonical, decade-old, formally-studied Move framework that *every* Move chain shares and
+that predates Sui. Verifying its fixpoint algorithm itself is formal-methods territory, not source
+review. And, as with any audit, the floor under everything is "this verifier code is bug-free." That
+is the honest bottom: **the "strongest conservation floor in the corpus" is now read code — ability
+rules, borrow checker, and the engine that applies them on all paths — down to the shared canonical
+Move framework. Not faith.**
+
+---
+
 ## Nothing routed privately
 
 No untrusted-input→unvalidated→value-moving path was found. The largest residual (the
