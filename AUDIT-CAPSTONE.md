@@ -1,12 +1,12 @@
 # Trust-Cartography Capstone — Findings Across the Whole Corpus
 
 *The wrap-up. One reusable lens — six buckets + three coordinates (equivalence / conservation
-floor / governance ceiling) — applied to ~49 systems across every major execution paradigm. This
+floor / governance ceiling) — applied to ~51 systems across every major execution paradigm. This
 records what was found, the comparative spectrums that emerged, and the laws that held.*
 
 *(Updated to fold in the L1/rollup expansion sweep: Aptos, Monad + MonadBFT, Sei, Berachain, NEAR,
 Stellar, Cardano, XRPL, TON, Osmosis, TradePort, Avalanche, Algorand, Hyperliquid, Polkadot, zkSync,
-Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa, Filecoin, Stacks, Tezos, Hedera — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
+Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa, Filecoin, Stacks, Tezos, Hedera, EOS, Ethereum — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
 
 ---
 
@@ -79,6 +79,8 @@ finding the real bug where one existed, and naming the trust precisely where non
 | **Stacks** | Clarity (caller-scoped) | **post-conditions**: caller-declared asset bounds, Deny catch-all | `AssetMap` recorder completeness; mode-dependence | clean; novel *caller* conservation |
 | **Tezos** | typed source/sink | supply moves only via typed infinite source/sink; `transfer_n` Σin=Σout; receipts exposed | Michelson VM; voting quorum machine | clean; self-amendment governance endpoint |
 | **Hedera** | explicit balanced journal | tx adjustment list must `isNetZeroAdjustment` (BigInteger, per asset) + `Math.addExact` | TokenMint/Burn auth; hashgraph aBFT | clean; federated-council governance |
+| **EOS/Antelope** | RAM Bancor curve | leak-free bonding curve; reserve-favorable rounding | **deterministic-float runtime guarantee** | clean (conditional); cautionary determinism entry |
+| **Ethereum** | account EVM (reference) | gas lifecycle: tip→validator, **basefee burned**; refund capped; uint256 checked | CL issuance (separate); opcode-level ops | clean (EL fee/burn); reference EVM |
 
 Across the expansion: **no new findings** — every target resolved to a sound conservation floor + a
 named residual, exactly as the original 25 did. MemeCore remains the lone exploitable-class finding.
