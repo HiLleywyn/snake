@@ -97,3 +97,50 @@ catch-and-return-false. It completes the corpus's privacy-conservation triad —
 as MimbleWimble, a transparent-setup alternative to ZK circuits. No inflation path found; nothing to
 disclose. Named irreducible trusts: range-proof and discrete-log soundness. Next pulls (separate
 surfaces): CLSAG ring-signature verification and the key-image double-spend layer.
+
+---
+
+# Addendum — Pass 2: ownership + double-spend (CLSAG + key images) — opened, clean
+
+Closing the deferred "non-semantics" half of Pass 1: RingCT splits *no-inflation* (Pass 1, the
+commitment sum) from *ownership + no-double-spend* (this pass). Both are needed for a complete value
+guarantee, and both are now traced.
+
+## Ownership without revealing which — CLSAG ring signature
+`verRctCLSAGSimple` (`src/ringct/rctSigs.cpp:875`) verifies a CLSAG ring signature over the input's
+ring (`pubs`). The hardening checks I confirmed up front:
+- **Canonical scalars:** every `sig.s[i]` and `sig.c1` must pass `sc_check` (`:884-886`) — rejects
+  non-reduced scalars, closing signature-malleability.
+- **Non-degenerate key images:** `sig.I != identity()` (`:887`) and the auxiliary `D_8 != identity()`
+  (`:898`) — a degenerate (identity) key image is rejected.
+- The verifier then rebuilds the **aggregation hashes** (`mu_P`, `mu_C` over domain-separated
+  `I, D, P, C, C_offset`, `:904-914`) and walks the ring recomputing the challenge chain, accepting
+  iff the chain closes back to `c1`. That is the standard CLSAG soundness: the signature verifies **iff
+  the signer knew the private key `x` of exactly one ring member and the key image `I = x·Hp(P)` is
+  correctly formed** — proving ownership of *a* ring member while hiding *which* one (sender ambiguity).
+Wrapped in `try/catch → false` (`:876`,`:...`), so a malformed point rejects rather than throws. **enforced.**
+
+## No double-spend — deterministic key image + a spent-set registry
+Because the key image `I = x·Hp(P)` is a deterministic function of the spent output's key, **spending
+the same output twice yields the same `I`**. The chain enforces uniqueness:
+`have_tx_keyimges_as_spent(tx)` (`src/cryptonote_core/blockchain.cpp:3214-3224`) iterates the tx's
+inputs and **rejects if any `in_to_key.k_image` is already recorded as spent** (`have_tx_keyimg_as_spent`,
+`:123`); the same check guards input validation (`:3220`,`:3488`), and within-block key-image
+uniqueness is enforced too. So the key image is the privacy-preserving analog of the UTXO
+"mark-spent"/nonce: it reveals nothing about *which* output was spent, yet a re-spend collides on `I`
+and is rejected. **enforced.**
+
+## The complete Monero value guarantee (both halves)
+| Property | Mechanism | Pass |
+|---|---|---|
+| No inflation | Pedersen `Σin = Σout + fee·H` + range proofs | 1 |
+| Ownership (spender controls an input) | CLSAG ring signature (knows `x` for one ring member) | 2 |
+| No double-spend | deterministic key image `I = x·Hp(P)` + spent-set registry | 2 |
+| Amount hiding | Pedersen commitments | 1 |
+| Sender hiding | ring signature + key image | 2 |
+*(Receiver hiding via one-time stealth addresses is a further surface, not opened.)* With Pass 2, the
+audit covers both the inflation-resistance and the double-spend-resistance of Monero — the full
+"value can't be forged or double-spent" guarantee. **No finding.** The deepest residual is unchanged:
+the soundness of the underlying crypto (range proofs, and now the CLSAG/Schnorr ring-signature
+soundness + the `Hp` hash-to-point being a genuine random oracle so `I` can't be forged for a key you
+don't control) — named, not cleared.
