@@ -834,18 +834,31 @@ in the corpus" claim now rests on read code, not faith.
 
 ### The honest residual that remains (what "opening it" did and didn't settle)
 
-I verified the **rules** (the per-instruction ability checks) are correct and complete. Two deeper
-layers I did *not* exhaustively verify, and they bound the confidence:
-1. **The dataflow framework** (`absint.rs` + the `locals_safety` `LocalState` lattice) must correctly
-   reach a fixpoint over *all* control-flow paths and join branches soundly. The rules are right; the
-   engine applying them to every path is standard Move abstract-interpretation but was read at the
-   rule level, not proven to converge correctly on every CFG.
-2. **`reference_safety`** (that references can't smuggle a value out past these checks) and generic
-   **instantiation** (`instantiation_loops`, ability of type parameters) — adjacent passes that
-   together close the remaining theoretical escape routes; read only by existence, not in depth.
-So: the *core ability rules are confirmed sound*; full verifier soundness additionally rests on the
-dataflow engine and the reference/instantiation passes, which are the next layer to open. This is the
-honest bottom of the "is the floor real" question — and as far down as one report should claim to go.
+I verified the **rules** (the per-instruction ability checks) are correct and complete, and then
+opened the one pass that could *bypass* them — references:
+
+- **`reference_safety` closes the reference-escape route (opened, confirmed).** Its stated guarantees
+  are "no dangling references, accesses to mutable references are safe, global-storage references are
+  safe," and the two checks that matter for linearity are enforced over a **borrow graph**:
+  `move_loc` errors with `MOVELOC_EXISTS_BORROW_ERROR` (`abstract_state.rs:444`) if you try to move a
+  value out of a local **while a reference into it is live**, and `ret` errors with
+  `RET_BORROWED_MUTABLE_REFERENCE_ERROR` (`:856`) if a reference would **escape the function** pointing
+  at a local. Combined with Pass-7's `ReadRef`-needs-`copy` rule, references therefore **cannot** be
+  used to clone or smuggle out a no-`copy`/no-`drop` value. So the linear guarantee holds across
+  *both* the ability checks and the borrow checker that could otherwise circumvent them.
+
+One layer remains genuinely un-opened, and it bounds the confidence honestly:
+- **The dataflow framework** (`absint.rs` + the `locals_safety`/`reference_safety` lattices) must
+  reach a fixpoint over *all* control-flow paths and join branches soundly. I confirmed the transfer
+  *rules* for both ability- and reference-safety; the abstract-interpretation **engine** applying them
+  to every CFG path is standard Move infrastructure, read at the rule level rather than proven to
+  converge correctly on every graph. (Generic **instantiation** ability handling is the other
+  adjacent pass, noted not deep-read.)
+
+So: the conservation floor is now verified at **two** layers (ability rules + borrow checker), with
+the residual reduced to the abstract-interpretation engine itself — about as far down as one report
+should claim. The "strongest floor in the corpus" is read code at the rule level, top to (near)
+bottom, not faith.
 
 ---
 
