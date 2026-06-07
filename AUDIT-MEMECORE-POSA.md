@@ -1,0 +1,152 @@
+# Go-MemeCore (PoSA consensus) — Six-Bucket Trust Audit
+
+**Target:** `memecore-foundation/Go-MemeCore`, cloned `/tmp/gomeme`, HEAD `4ab3ee9`
+(v1.15.3). A **go-ethereum fork** (EVM L1, Cancun/EIP-4844) whose delta from upstream is a
+custom **PoSA (Proof of Staked Authority)** consensus engine (`consensus/posa/`) plus
+MemeCore hardforks (GasTree / RewardTree / CanPraTree).
+**Posture:** defensive, recompute-grounded. No exploit, no PoC. No bare "safe"; verdicts cite
+the exact constraint. The high-value items below are **consensus-robustness / hardening**
+observations visible in the public repo, written fix-first — **not** an exploit recipe. The
+determinism item (§6, item B+C) touches consensus safety and is the kind of thing that should
+be **routed privately to the MemeCore foundation** (security contact / bug bounty) for
+confirmation against their closed system contracts, rather than treated as settled.
+
+**Why this target:** for a chain fork the methodology's sharpest question is **Bucket 4 — fork
+lineage: what was inherited vs. changed.** geth core is heavily audited; the risk concentrates
+in the PoSA engine, which is MemeCore's own code.
+
+---
+
+## Bucket 1 / 5 — native-token reward conservation (the inherited part is clean)
+
+`accumulateRewards` (`posa.go:938`) mints a **fixed, config-selected** per-block reward to the
+coinbase:
+
+```go
+blockReward := Phase1BlockReward
+if config.IsRewardTreeFork(header.Number) { blockReward = RewardTreeForkBlockReward }
+// overflow-checked before adding:
+_, overflow := new(uint256.Int).AddOverflow(balance, blockReward)
+if overflow { return errors.New("validator contract balance overflow") }
+stateDB.AddBalance(header.Coinbase, blockReward, ...)
+```
+
+Inflation is therefore **bounded and deterministic** (a constant per block, switched once at
+the RewardTree hardfork height), and the add is **overflow-guarded**. `Finalize`
+(`posa.go:657`) propagates errors from `verifyValidators`, `accumulateRewards`, and `snapshot`.
+**Verdict: enforced** for the in-Go issuance. The *redistribution* of that reward to validators
+happens inside the **system contract** `timedTask` (below), whose conservation is on-chain
+Solidity not in this repo — a Move↔Rust-style closed seam (`§6`).
+
+---
+
+## Bucket 6 — the PoSA system-contract seam (where the findings are)
+
+Per block, `Finalize` → `settleRewardsAndUpdateValidators` (`contract.go:85`) makes a
+system-originated EVM call to the reward contract:
+
+```go
+data := rewardABI.Pack("timedTask", signer, validatorList)   // 0x1234…0001
+msg := &core.Message{ From: sysCallAddr /*0xfff…ffe*/, GasLimit: 50_000_000, GasPrice: 0, To: rewardAddr, Data: data }
+ret, leftOverGas, err := vmenv.Call(msg.From, *msg.To, msg.Data, msg.GasLimit, common.U2560)
+if p.enableEventLogging { /* …err only used for logging… */ }
+state.Finalise(true)
+return nil
+```
+
+### A. Reward distribution lives in a closed system contract (named seam)
+The validator set is **read** from `getValidators()` at `0x1234…0002`; reward settlement is
+**delegated** to `timedTask` at `0x1234…0001`. Both are on-chain contracts not in this repo, so
+their conservation/authorization is unverifiable here — and **whoever can upgrade those two
+contracts controls validator membership and reward distribution** (the governance ceiling,
+below). This is the standard PoSA trust relocation (as in BSC parlia). **named, irreducible
+from the client side.**
+
+### B. The system-call result is not enforced (hardening debt → robustness risk)
+`settleRewardsAndUpdateValidators` **returns `nil` unconditionally**: the `err` from
+`vmenv.Call` is referenced only inside the `if p.enableEventLogging` block (and logging is
+typically off in production). So if `timedTask` **reverts**, the revert is **swallowed** — the
+EVM rolls back the call's own state changes, `state.Finalise(true)` commits the rest, and the
+block is still treated as valid with reward settlement silently skipped. Robust PoSA
+implementations (BSC parlia) treat an unexpected system-call failure as **block-invalidating**.
+**Recommendation:** propagate the call error (return it from `Finalize`) so a reverting
+`timedTask` cannot produce a "valid" block that skips settlement. **hardening debt.**
+
+### C. Non-deterministic validator ordering into a consensus-critical call (determinism risk)
+`validatorList` is built by ranging a **Go map** with no sort (`contract.go:93–96`):
+
+```go
+for validator := range validators { validatorList = append(validatorList, validator) }
+```
+
+Go randomizes map iteration order, so `validatorList`’s order **differs across nodes and runs**,
+and it is then passed as input to a state-changing system call that is part of the block's
+state transition. If `timedTask`'s **gas usage or resulting state** depends on the array order,
+nodes can diverge. Combined with **B** and the fixed 50M gas budget, the sharp edge is:
+order-dependent gas could push `timedTask` to out-of-gas-revert on some nodes' ordering but not
+others' → divergent state roots → a **silent consensus split** (silent precisely because the
+revert is swallowed and the block is still "valid" on both sides). In practice a running chain
+implies `timedTask` is currently order-insensitive and well under the gas limit — so this is
+**latent fragility, not a demonstrated live split** — but it depends on an unseen contract and
+would re-arm on any change to either side. **Recommendation:** **sort `validatorList`
+deterministically** before the call (parlia sorts its validator set), independent of fixing B.
+This is the highest-value item and the one to confirm privately with the team. **robustness /
+constraint debt (consensus-adjacent).**
+
+---
+
+## Bucket 2 — witnessed objects / signing
+
+Block authorship is `ecrecover`-verified (`contract.go:87`) with a fallback to the local
+`p.signer` during production (`:90`) — consistent because the producer *is* the signer. The
+validator authority set is the witnessed object, sourced from the `0x…0002` contract. Inherited
+geth secp256k1/state machinery. **inherited; the PoSA-specific signer handling is consistent.**
+
+---
+
+## Bucket 4 / governance ceiling
+
+- **The two system contracts** (`0x1234…0001` reward, `0x1234…0002` validatorSet) are the trust
+  root: they define who validates and how rewards flow, and they are read/called every block.
+  Whoever holds their **upgrade authority** controls the chain's validator membership and native
+  emission — apex power (`AUDIT-GOVERNANCE-CEILING.md`), and not visible in this repo.
+- **Hardfork switches** (RewardTree changes the block reward; GasTree / CanPraTree) are
+  config-gated lineage transitions — verify their activation heights and the new constants match
+  the intended economics.
+- Inherited geth = high evidence depth; the audit weight is the PoSA delta above.
+
+---
+
+## Summary
+
+| Bucket | Subject | Verdict |
+|---|---|---|
+| 1/5 | Per-block reward issuance | **enforced** — fixed, deterministic, overflow-guarded mint to coinbase |
+| 1/6 | Reward *redistribution* (`timedTask`) | **named seam** — in closed system contract; conservation unverifiable here |
+| 6-B | System-call error swallowed (`return nil`) | **hardening debt** — propagate the error; a reverting `timedTask` should invalidate the block |
+| 6-C | Unsorted (map-order) validator list into the system call | **robustness / consensus-adjacent** — sort it; latent split risk via order→gas→OOG with B; confirm privately |
+| 2 | Signer recovery / authority | **inherited; consistent** |
+| 4 / ceiling | `0x…0001`/`0x…0002` system contracts + upgrade authority + hardfork constants | **trust-boundary debt (by design)** — the validator/emission trust root |
+
+## What this audit did NOT cover (coverage honesty)
+
+- The two **system contracts** (`timedTask`, `getValidators`) — closed/on-chain; their reward
+  conservation, authorization, and order-sensitivity are the decisive unknowns (and exactly what
+  determines whether §6-C is benign or live).
+- The PoSA **snapshot / signer-cadence / in-turn** logic (`snapshot.go`, `posa.go` sealing) and
+  fork-choice beyond the finalize path.
+- The custom hardfork **constants and activation heights** (RewardTree block reward value, etc.).
+- Everything inherited from upstream geth (EVM, txpool, p2p, trie) — treated as high-evidence
+  inherited code.
+
+## Responsible-disclosure note
+
+Items **§6-B and §6-C together describe a *latent* consensus-robustness concern** (swallowed
+system-call error + non-deterministic validator ordering). It is visible to anyone reading the
+public repo and is **not** presented here with any trigger or exploit. Because it touches
+consensus safety, the right path is to **share it privately with the MemeCore foundation** (their
+`SECURITY.md` / security contact) so they can confirm against their system contracts and, if
+warranted, sort the validator list and enforce the call result. Nothing is posted as a weapon;
+the recommendations (sort the list; propagate the error) are the fix. Companion to
+`AUDIT-DRIFT-PERP.md` / `AUDIT-MARGINFI-LENDING.md` (closed system-contract seams) and
+`AUDIT-GOVERNANCE-CEILING.md` (the upgrade-authority trust root).
