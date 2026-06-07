@@ -625,6 +625,105 @@ spot is the author's own flagged "should be unreachable" default, which fails sa
 
 ---
 
+# Addendum — Pass 5: Validator identity & proof-of-possession (`validator.move` → Rust crypto)
+
+Passes 1–4 were all about *value*. This pass audits *identity* — and it matters because
+Pass 1's entire conservation argument bottomed out at "every **honest validator**
+re-derives `ChangeEpoch` deterministically." That sentence is only as strong as the gate
+that decides *who is a validator*. So this pass checks the admission witness: can an actor
+register a BLS protocol key it does not actually control (a rogue-key attack), or rebind
+someone else's key/identity?
+
+This is a pure **Bucket 2** (witnessed cryptographic object) question, and it crosses the
+Move→Rust seam: the Move layer stores the metadata, but the cryptographic check is a
+native function.
+
+### The gate is comprehensive — every key entry and rotation is verified
+
+`ValidatorMetadata.validate()` (`validator.move:906`) is called at the constructor
+(`:261`, used by genesis and `request_add_validator_candidate`) **and at every single
+metadata-mutation setter** — `update_next_epoch_protocol_pubkey`,
+`update_candidate_protocol_pubkey`, and the dozen sibling updaters (`:705`–`:864`). There
+is no path that writes or rotates a protocol public key without re-running validation.
+**enforced — no bypass surface.**
+
+`validate()` BCS-serializes the metadata and calls the native `validate_metadata_bcs`
+(`:910`), which (`sui-move-natives/.../validator.rs:62`) deserializes into
+`ValidatorMetadataV1` and calls `verify(true)`. The crypto is in Rust, but it is **not a
+deferral** (unlike the Pass-1 6a seam) — it is an actual signature check performed inline,
+which the Move layer cannot skip.
+
+### The witness binds possession to identity, with domain separation
+
+`verify_proof_of_possession` (`crypto.rs:108`):
+
+```rust
+protocol_pubkey.validate() ... ?;                       // :114 — subgroup/validity check on the pubkey
+let mut msg = protocol_pubkey.as_bytes().to_vec();      // :118
+msg.extend_from_slice(sui_address.as_ref());            // :119 — message = pubkey || address
+pop.verify_secure(
+    &IntentMessage::new(Intent::sui_app(IntentScope::ProofOfPossession), msg),  // :121 — domain-separated
+    DEFAULT_EPOCH_ID,
+    protocol_pubkey.into(),
+)
+```
+
+Three properties, each load-bearing:
+
+1. **Binds the key.** The PoP is a signature *under the protocol private key* over a
+   message that commits to the protocol *public* key. You cannot register a public key
+   you do not hold the secret for — this is the standard **rogue-key-attack mitigation**
+   for BLS, which matters precisely because Sui aggregates authority signatures. (A rogue
+   key would let an attacker contribute to aggregate signatures / voting they shouldn't.)
+2. **Binds the identity.** The message also commits to `sui_address` (`:119`), so a PoP
+   minted for address A cannot be replayed to claim the same key under address B. Key and
+   on-chain identity are cryptographically welded together.
+3. **Domain-separates.** `Intent::sui_app(IntentScope::ProofOfPossession)` (`:121`) tags
+   the signed bytes with a PoP-specific scope, so a PoP can never be confused with — or
+   replayed as — a transaction signature (or any other Sui signature), and vice versa.
+   This is the anti-cross-protocol-replay guard.
+
+I recompute-checked generate vs verify: `generate_proof_of_possession` (`:92`) builds the
+*identical* message (`public().as_bytes() || address.as_ref()`, same `ProofOfPossession`
+intent, `:96`–`:100`) that `verify` reconstructs (`:118`–`:121`). No asymmetry between the
+signing and checking sides. **enforced invariant.**
+
+### Rotation and role-separation are gated too
+
+- **Next-epoch key rotation is PoP-gated.** `ValidatorMetadataV1::verify`
+  (`sui_system_state_inner_v1.rs`) verifies the current protocol key (`:132`) *and* the
+  next-epoch rotation key (`:184`), and **rejects a next-epoch pubkey supplied without a
+  matching next-epoch PoP** (`:191`–`:193`, `E_METADATA_INVALID_POP`). You cannot rotate
+  to a key you do not control. **enforced.**
+- **Role keys must differ.** `worker_pubkey == network_pubkey` is rejected (`:139`–`:141`)
+  — prevents collapsing distinct roles onto one key. Addresses are parsed and validated as
+  anemo `Multiaddr`s (`:143`–`:163`). **enforced.**
+
+### Where this lands
+
+| Subject | Verdict |
+|---|---|
+| Validation coverage (all key entry/rotation paths) | **enforced — no bypass** (`validate()` at constructor + every setter) |
+| PoP binds protocol key (rogue-key mitigation) | **enforced invariant** — signature under the key, over the key |
+| PoP binds `sui_address` (identity welding) | **enforced invariant** — address committed in the signed message |
+| Domain separation (`IntentScope::ProofOfPossession`) | **enforced** — no cross-protocol replay with tx signatures |
+| Next-epoch key rotation | **enforced** — rotation key PoP-verified; missing PoP rejected |
+| Pubkey validity / role separation | **enforced** — subgroup check; worker ≠ network |
+| Epoch-independence of PoP (`DEFAULT_EPOCH_ID`) | **noted, not a finding** — intentional; safe because identity (address) is bound, so replay confers no benefit without the secret key |
+
+### Why this closes a loop back to Pass 1
+
+Pass 1 deferred SUI's per-epoch supply integrity to "honest validators re-derive the same
+`ChangeEpoch`." Pass 5 shows the membership of that honest set is itself a
+cryptographically witnessed object: you join only by proving possession of a protocol key
+bound to your address, domain-separated from all other signatures. The consensus trust
+root Pass 1 leaned on is not assumed — it is **admission-gated by an enforced Bucket-2
+witness**. The two passes compose: conservation rests on consensus, consensus rests on
+PoP-verified identity, and PoP-verified identity rests on a BLS signature whose message
+welds key to address.
+
+---
+
 ## Nothing routed privately
 
 No untrusted-input→unvalidated→value-moving path was found. The largest residual (the
