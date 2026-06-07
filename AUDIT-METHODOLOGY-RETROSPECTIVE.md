@@ -339,6 +339,77 @@ system running it — not a new target. It does not add a seventh bucket.*
 
 ---
 
+## 11. Where conservation *lives*, by execution model
+
+*Added after extending the corpus past zk: a Move/Rust L1 (Sui, 5 passes), an EVM
+token (WLFI), a Java chain (TRON), and a UTXO + MimbleWimble chain (Litecoin). §9
+asked where the 6b **equivalence** is discharged. This section asks an orthogonal
+question that only came into focus across execution models: where is the **Bucket-1
+conservation invariant itself enforced** — and how strong is that enforcement?*
+
+The answer turns out to be a function of the execution model, and it sorts into a
+**strength ladder**. The same invariant — "value is neither created nor destroyed" —
+is enforced by mechanisms of very different power:
+
+| Where conservation lives | Mechanism | Strength | Seen in |
+|--------------------------|-----------|----------|---------|
+| **Type system** (compile-time) | linear resource types — a violation is *unrepresentable* | strongest: no path can even express it | **Sui/Move** `Balance`/`Supply` (`store` w/o `copy`/`drop`) → Σ Balance == Supply by construction |
+| **Cryptographic algebra** | homomorphic commitment sum + range proofs | strong: violation requires breaking a primitive | **MimbleWimble/MWEB**, shielded pools (Zcash/Namada/Penumbra) |
+| **Consensus re-derivation** | every node recomputes; disagreement = no block | strong but social: rests on honest-majority + determinism | **Sui** epoch supply delta, **Aleo** `finalize` |
+| **Runtime arithmetic check** | imperative `assert(in ≥ out)` per tx/block | medium: correct iff the check is present on every path | **UTXO/Litecoin base** (`value-in ≥ value-out`, coinbase ≤ subsidy+fees) |
+| **Account-balance mutation** | hand-written debits/credits in contract/actuator code | weakest: relies on the author placing every guard | **EVM/WLFI**, **TRON** actuators |
+
+Three findings fall out of reading this ladder:
+
+**1. Strength is inversely correlated with how much you must trust the author.** At
+the top, the *type checker* refuses to compile a non-conserving program — Sui's user
+coins cannot leak no matter what the framework author writes (Pass 1/3: the reward
+arithmetic is *advisory*; the linear type carries the invariant). At the bottom, EVM
+and TRON conserve value only because a human remembered to write the right
+subtraction before the right addition and to check for underflow — every `_update`,
+every actuator, every path. The audit effort required is the mirror image: type-
+enforced systems need one structural proof; imperative systems need exhaustive
+path coverage.
+
+**2. Where conservation lives determines the *shape of the residual fragility.*** This
+is the throughline that held across all five Sui passes and recurred in Litecoin:
+
+> **Type-enforced and cryptographic conservation push their residuals to
+> *liveness*** (a violation attempt becomes a checked abort / failed proof / safe
+> mode). **Imperative conservation pushes its residuals to *value*** (a missing check
+> becomes mintable/burnable supply).
+
+Sui's every residual was liveness-shaped (Move casts abort, not wrap; bad amounts →
+safe mode). Litecoin's MWEB residuals were the same (out-of-range → `BLOCK_CONSENSUS`
+reject; the only value-shaped risk, 6b, sits in Bulletproofs soundness, not the
+bookkeeping). The EVM/Java targets had no such structural floor — there, the question
+*is* "is the check present?", which is why those reviews were path-exhaustive rather
+than structural.
+
+**3. The guarantee never lives where you would first look.** A recurring,
+almost reliable misdirection:
+
+| You'd look at… | …but conservation actually lived in… |
+|----------------|--------------------------------------|
+| Sui's Move `advance_epoch` entrypoint | the **Rust** consensus layer (mint/burn) + **genesis** partition (`destroy_zero`) |
+| Litecoin's MWEB block validator | the **`ApplyBlock` state transition** (`KernelSumValidator` runs there, not in `Block::Validate`) |
+| the reward *formulas* (`mul_div!`) | the **`Balance::split` assert** that makes the formulas advisory |
+| the staking exchange-rate *math* | the **system per-epoch snapshot** that makes the rate un-pokeable |
+| an EVM token's transfer function | the **proxy admin / multisig** that can replace the whole implementation (WLFI: the running code wasn't even the verified code) |
+
+The operational lesson: **locate the enforcement mechanism before reading the
+business logic.** The business logic is usually advisory; the load-bearing constraint
+is one layer down (type system, state-transition, capability, or governance root),
+and finding *which* layer is most of the audit.
+
+This composes with §9 cleanly. §9: *name the equivalence and who discharges it.*
+§11: *name where the conservation invariant is enforced and how strong that floor
+is.* Together they are the two coordinates of a system's trust: **what must be
+believed equal (6b), and what mechanism forbids creation (Bucket 1)** — and both
+answers move *down* the stack, away from the code that looks like it's in charge.
+
+---
+
 ## What this is and isn't
 This is a defensive, public-information retrospective synthesizing reviews of
 open-source code at named commits. It demonstrates **no** vulnerability; every
@@ -355,5 +426,8 @@ ecosystems, and a sharpened six-bucket model for the next target.
 `AUDIT-AZTEC-PASS1-REPRESENTATION.md`, `AUDIT-AZTEC-PASS2-CONSERVATION.md`,
 `AUDIT-AZTEC-AVM-BUCKET6-TEST.md` · `AUDIT-ALEO-SIX-BUCKET.md`,
 `AUDIT-MINA-SIX-BUCKET.md` · `AUDIT-BRIDGES-SIX-BUCKET.md` (generalization beyond
-zk) · `AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
+zk) · `AUDIT-SUI-SIX-BUCKET.md` (Move/Rust L1, 5 passes: epoch supply, genesis,
+reward distribution, staking exchange rate, validator PoP) ·
+`AUDIT-LITECOIN-SIX-BUCKET.md` (UTXO base layer + MWEB tri-layer conservation) ·
+`AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
 memory → institutions).
