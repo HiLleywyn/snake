@@ -795,6 +795,60 @@ the same form here, by Sui's architecture.
 
 ---
 
+# Addendum — Pass 7: opening the load-bearing assumption — the bytecode verifier *actually* enforces linear typing
+
+*Every "enforced invariant" verdict in this report for user-coin conservation rests on one claim I
+had been **assuming**: that the Move bytecode verifier genuinely forbids copying a no-`copy` value and
+discarding a no-`drop` value. If that pass has a hole, `Balance<T>` is forgeable/vanishable and the
+"strongest floor in the corpus" collapses. So I opened it (`external-crates/move/crates/
+move-bytecode-verifier`). It holds — and it is **complete**, not partial.*
+
+A value can only be illegitimately created or destroyed via a small, enumerable set of bytecodes.
+The verifier gates **every one** of them on the relevant ability:
+
+**Duplication (must have `copy`):**
+- `Bytecode::CopyLoc` → `if !abilities.has_copy() → COPYLOC_WITHOUT_COPY_ABILITY`
+  (`type_safety.rs:722`). `MoveLoc` (the linear move) needs no copy and *consumes* the local.
+- `Bytecode::ReadRef` → reading the pointee through a `&`/`&mut` requires `has_copy()`, else
+  `READREF_WITHOUT_COPY_ABILITY` (`:789`). Closes the `*&balance` clone path.
+
+**Destruction (must have `drop`):**
+- `Bytecode::Pop` → `if !abilities.has_drop() → POP_WITHOUT_DROP_ABILITY` (`:611`). Can't discard
+  a stack value.
+- `Bytecode::StLoc` over a local that is `Available`/`MaybeAvailable` and `!has_drop()` → error
+  (`locals_safety/mod.rs:46`). Can't overwrite a slot still holding a `Balance` (that would
+  implicitly drop it).
+- `Bytecode::Ret` with any `Available`/`MaybeAvailable` local that is `!has_drop()` → error
+  (`locals_safety/mod.rs:78`). Can't return leaving a `Balance` in a local — it must be moved into
+  the return value / another struct, or explicitly destroyed via `decrease_supply`/`destroy_zero`.
+
+That is the **complete set** of duplicate/discard paths, and all five are ability-gated. Therefore a
+`Balance<T>` (`store`, no `copy`, no `drop`) **cannot be forged or vanished by any bytecode sequence
+the verifier accepts** — the `Σ Balance == Supply.value` invariant is enforced at *publish time*, as
+claimed. The `MaybeAvailable` lattice state (a local that holds a value on some control-flow paths
+but not others, after a branch join) is treated like `Available` for these drop checks — the
+*conservative, correct* choice (if it *might* hold a non-drop value, you can't implicitly drop it).
+
+**Verdict: the load-bearing assumption is verified, not assumed.** The "strongest conservation floor
+in the corpus" claim now rests on read code, not faith.
+
+### The honest residual that remains (what "opening it" did and didn't settle)
+
+I verified the **rules** (the per-instruction ability checks) are correct and complete. Two deeper
+layers I did *not* exhaustively verify, and they bound the confidence:
+1. **The dataflow framework** (`absint.rs` + the `locals_safety` `LocalState` lattice) must correctly
+   reach a fixpoint over *all* control-flow paths and join branches soundly. The rules are right; the
+   engine applying them to every path is standard Move abstract-interpretation but was read at the
+   rule level, not proven to converge correctly on every CFG.
+2. **`reference_safety`** (that references can't smuggle a value out past these checks) and generic
+   **instantiation** (`instantiation_loops`, ability of type parameters) — adjacent passes that
+   together close the remaining theoretical escape routes; read only by existence, not in depth.
+So: the *core ability rules are confirmed sound*; full verifier soundness additionally rests on the
+dataflow engine and the reference/instantiation passes, which are the next layer to open. This is the
+honest bottom of the "is the floor real" question — and as far down as one report should claim to go.
+
+---
+
 ## Nothing routed privately
 
 No untrusted-input→unvalidated→value-moving path was found. The largest residual (the
