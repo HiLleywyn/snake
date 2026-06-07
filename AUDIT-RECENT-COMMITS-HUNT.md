@@ -185,3 +185,39 @@ advance (and cascades invalidation) when a dependency is non-cross-safe or reorg
 substrate: shared-encoder byte-agreement (R2), log-DB reorg detection + cross-unsafe analog (R5) — all
 named, none a finding. This is "name the oracle, then open it, then open *its* substrate" — three levels
 deep on a live feature, and it holds.
+
+---
+
+## R6. Solana / Agave (SOL) — capitalization (total-supply) accounting + recent cached-account fix (clean) [non-EVM]
+**Target:** `anza-xyz/agave` HEAD `fed083b`, `runtime/src/bank.rs` + `accounts-db/src/accounts_db.rs`.
+First **non-EVM** recent-commits target — genuinely different ground (account model, Rust runtime, not
+type-enforced conservation). Picked the conservation-critical surface flagged by the recent commit
+`205b6e2 / #12909 "Add Cached Account updates to capitalization"`. **Capitalization = Solana's total
+supply** (Σ all account lamports); the invariant is `capitalization == Σ lamports`.
+- **Incremental delta-tracking is correct + checked.** `store_account_and_update_capitalization`
+  (`bank.rs:4685+`) computes the lamport **diff** (new vs old) and `fetch_add`/`fetch_sub`s exactly that,
+  handling the created-account case; the create/destroy/rent points (`:3118,3183,4416`) likewise add/sub
+  the precise lamports. Comment is appropriately cautious ("Technically this issues (or even burns!) new
+  lamports").
+- **Recompute-and-verify gate (the conservation check) — and the recent fix.**
+  `calculate_capitalization_at_startup_from_index` (`accounts_db.rs:5010`) recomputes capitalization by
+  summing non-zero stored lamports over the whole account index with **`checked_add`** ("capitalization
+  cannot overflow", `:5035-5038`) **plus** the **cached (un-flushed) account updates**
+  (`accounts_cache.cached_pubkeys()`, `:5045+`) — summed as **i128** with explicit overflow reasoning.
+  The recent commit's content *is* this cached-update inclusion: before it, the recompute could miss
+  accounts still in the write cache, causing a spurious mismatch; the fix makes the recompute =
+  storage-index Σ + cache-delta. Correct hardening.
+**Result: clean** — capitalization is delta-tracked with checked arithmetic and verified by a full
+recompute (index Σ + cache delta, overflow-guarded), the recompute-don't-trust conservation gate (the
+Solana analog of Algorand's `totals.All()`), and the recent change correctly closes a cache-omission gap
+in that recompute. **Residual:** the exact compare-site (recomputed vs tracked capitalization at
+snapshot verification) + the accounts-hash verification — confirmed the recompute, not every compare
+call. **No finding.**
+
+### Non-EVM note
+The recent-commits lens transfers cleanly to a non-EVM chain: same discipline (conservation as a
+recomputed invariant, checked arithmetic, recompute-don't-trust), different substrate (account-lamports
+capitalization vs EVM balances). Solana verifies total supply by full recompute — the same
+"strongest-floor" family as Algorand/ICP/Tezos — and the freshest change *hardens* that recompute. The
+non-EVM frontier looks the same as the EVM one: clean conservation core, residual at the verification
+substrate.
