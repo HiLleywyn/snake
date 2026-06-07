@@ -285,3 +285,57 @@ observation, oracle, yield-token value, collateral plugins, AVS slash trigger, a
 GMX price feed). The down-market thesis ("smaller = more findings") did **not** hold for *recognizable*
 mid-caps — they are uniformly well-audited; real fork findings would require diffing *specific
 less-audited forks* against these references (the path deferred per the steering choice).
+
+---
+
+# Fork diffs (the actual bug hunt — diff specific forks vs reference)
+Method: clone a named fork, diff the bug-prone module against the reference / known fork-bug class.
+**Findings that are live+exploitable are NOT detailed here — stopped-and-notified privately; only a
+redacted placeholder appears.** Results so far:
+
+## F1. Gravita (Liquity V1 fork, multi-collateral) — P/S math faithfully inherited (clean)
+**Diff target:** `Gravita-Protocol/Gravita-SmartContracts` `StabilityPool.sol` vs Liquity V1 reference.
+The #1 Liquity-fork bug class is the stability-pool `P`/`S` scale-factor math. Gravita reproduces it
+**correctly**: `_updateRewardSumAndProduct` (`:457-514`) updates per-asset `S =
+epochToScaleToSum[asset][epoch][scale]` *before* `P`; `newProductFactor = 1 − debtLoss`; pool-empty
+(`factor==0`) → `epoch++`, `scale=0`, `P=1`; else single-step `SCALE_FACTOR` increment when
+`currentP·factor/PREC < SCALE_FACTOR`; `require(newP != 0)`. The multi-collateral risk (global
+`P`/scale/epoch vs per-asset `S`) is handled correctly — each asset's `S` is read at the global
+epoch/scale coordinates, so a scale bump from asset A's liquidation doesn't desync asset B's gains.
+Uses V1 single-step scaling (V2 added `MAX_SCALE_FACTOR_EXPONENT`); the single-step edge (one
+liquidation dropping `factor` below `1/SCALE_FACTOR`) is the known, accepted, sub-wei V1 residual, not
+exploitable. **Clean — inherited the fix; audited.** No finding.
+
+## F2. Compound-V2-fork donation / empty-market inflation — reusable detector (characterized on canonical reference)
+**Reference:** `compound-finance/compound-protocol` `CToken.sol`. The single most common lending-fork
+bug. Mechanism: empty market (`totalSupply == 0`) → `exchangeRate = initialExchangeRateMantissa`
+(`:295-300`); first mint `mintTokens = actualMintAmount / exchangeRate` (`:428`); once supplied,
+`exchangeRate = (cash + borrows − reserves)·1e18 / totalSupply` (`:303-307`). **Attack:** be the first
+depositor, mint minimal cTokens, then **donate** underlying directly to the contract (raises `cash`
+without minting) → `exchangeRate` balloons → later depositors' `amount/exchangeRate` rounds down (toward
+0) → attacker holding ~all shares redeems the inflated pool.
+**Why canonical Compound is *operationally* safe:** governance **seeds** every market before users, and
+the cToken 8-dec / underlying 18-dec scaling means the first deposit mints a *large* share count, so
+inflating the rate enough to zero out a real deposit costs an impractical donation.
+**Fork-vulnerability checklist (what actually makes a fork exploitable):**
+1. **Permissionless / auto market listing without seeding** — attacker creates an empty market and is
+   first depositor.
+2. **Changed decimals / `initialExchangeRateMantissa`** that makes first-mint rounding trivial.
+3. **ERC4626-style 1:1 shares without virtual shares** (the OZ/EigenLayer `SHARES_OFFSET` mitigation
+   absent — cf. sweep #7 where EigenLayer *has* it).
+4. **No minimum-mint / dead-shares burn** on the first deposit.
+This is a reusable detector; confirming a *live* vulnerable fork requires a **named target** (a specific
+less-audited fork's `CToken`/market-listing). **No specific live finding claimed here** — characterized,
+not a vuln report.
+
+---
+
+### Fork-hunt status (honest ceiling)
+Diffed Gravita (Liquity fork — **clean**, inherited the P/S fix) and pinned the Compound donation
+detector (F2). The honest result of going fork-hunting on *recognizable* names: they are **patched /
+audited** (forks of major protocols inherit the reference's fixes, and the well-known vulnerable forks —
+Hundred, Cream, Lodestar, Tender — are dead or remediated). A *live, currently-exploitable* fork is
+almost always **obscure/anonymous with no clean public repo**, and those cannot be enumerated from here
+(no live DEX-screener / CMC-list access; JS SPAs unreadable). So the productive next step is a **named
+suspect** (ticker, repo, or contract address) to diff hard against these references and the F1/F2 bug
+classes. Absent a name, fork-diffing nameable targets keeps returning "clean — inherited the fix."
