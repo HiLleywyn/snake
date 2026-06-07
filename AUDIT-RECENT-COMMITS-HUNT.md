@@ -110,3 +110,42 @@ EL/L2 stacks: the on-chain/consensus components handle determinism correctly **a
 *relocate* the heavy validation to shared canonical encoders (alloy) and off-chain
 supervisors/derivation — so the residual is consistently a **cross-client encoder agreement** or an
 **off-chain validator**, exactly the "name the oracle" shape (§4h). No findings.
+
+---
+
+## R4. Optimism op-supervisor — interop cross-safety validation (the R3 security boundary, opened — clean)
+**Target:** `ethereum-optimism/optimism`, `op-supervisor/supervisor/backend/cross/hazard_set.go`. This is
+the **off-chain security boundary R3 pointed at** — the supervisor logic that enforces "interop
+executing-message ⟺ valid source message," which the minimal on-chain `CrossL2Inbox` delegates to.
+Opened it, and the core cross-chain safety is **correctly enforced**:
+- **No value from a fake message (existence + checksum).** For every executing message, `build`
+  (`:124-135`) runs `deps.Contains(msg.ChainID, {Timestamp, BlockNum, LogIdx, Checksum})` — the source
+  log **must actually exist** at that exact coordinate **with a matching checksum**, or "failed inclusion
+  check." A fabricated/self-warmed message (the R3 self-warm concern) **fails here** — this is the check
+  that makes the minimal on-chain contract safe.
+- **Timestamp / causality invariant.** A source message in the **future**
+  (`msg.Timestamp > candidate.Timestamp`) → **`breaks timestamp invariant: ErrConflict`** (`:155-156`):
+  you cannot execute a message initiated after you. Older source → `checkMessageWithOlderTimestamp`
+  (must be in a cross-valid block); same-timestamp → `checkMessageWithCurrentTimestamp` with cycle-aware
+  hazard recursion (`:137-154`, handles back-and-forth same-ts messaging without inconsistent cycles).
+- **Dependency-set linking.** `checkChainCanExecute` → `linker.CanExecute(destChain, ts, srcChain, ts)`
+  (`:59-62`) gates chain-pair execution + the chain-level timestamp link before any message is linked.
+- **Expiry** is checked upstream (noted `:74`), and the hazard set feeds the cross-safe/unsafe update so
+  an executing block is only as safe as its source messages.
+**Result: clean** — the supervisor enforces existence (checksum-matched inclusion), the
+no-future-execution timestamp invariant, dependency-set linking, and cycle-safe same-timestamp handling.
+This **closes most of the R3 residual**: the off-chain validator the on-chain `CrossL2Inbox` relies on
+genuinely rejects fake/future/unlinked messages. **Remaining residual:** the **log-DB correctness**
+(`deps.Contains` faithfully mirroring source-chain logs) and the **reorg/invalidation + finalization
+progression** (`safe_update`/`unsafe_update` — what happens if a source message is reorged out after
+execution) — deeper surfaces, not opened. **No finding.**
+
+### Recent-commits hunt — convergence
+R3 (on-chain `CrossL2Inbox`: minimal warmth gate) + R4 (off-chain supervisor: the real existence +
+timestamp-invariant + dependency checks) together show the interop design is sound *as a system*: the
+contract is a cheap hook, the supervisor is the enforcer, and the enforcer does its job. This is the
+"name the oracle, then open it" follow-through (§4h) applied to a live, recently-shipped cross-chain
+feature — the oracle (op-supervisor) checks out on its core message-validation. Net across R1–R4: the
+freshest EL/L2 code is clean on determinism and cross-chain existence/causality; residuals are the
+shared encoder byte-agreement (R2), the log-DB + reorg/finalization progression (R4) — both
+named, neither a finding.
