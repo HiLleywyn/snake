@@ -91,3 +91,44 @@ chain balance observation under TSS; the solvency checks are only as good as the
 them — mitigated by supermajority, not eliminated) — the deepest surface, not opened. **No finding.**
 
 ---
+
+## 4. Liquity V2 (BOLD) — CDP with stability-pool offset; the fork-parent reference (clean, formally verified)
+**Target:** `liquity/bold`, `contracts/src/{StabilityPool,ActivePool,TroveManager,BorrowerOperations}.sol`.
+Distinct conservation model not yet in the corpus, and the **parent of a large fork ecosystem**
+(Gravita, Prisma, Ethos, Felix, …) — auditing the reference pins down exactly what forks must preserve.
+**Result: clean — and `certora/harnesses/` shows it's formally verified (Certora specs).**
+
+**Conservation model.** A CDP stablecoin: debt (BOLD) is minted against collateral troves; liquidations
+are absorbed by the **Stability Pool** (SP BOLD is burned to cancel the liquidated debt, and the
+liquidated collateral is distributed to SP depositors); BOLD is redeemable for collateral at **$1 face
+value**. V2 adds user-set interest rates, tracked in aggregate (`ActivePool.aggRecordedDebt +
+calcPendingAggInterest() + batch fees`, `:157`) and per-trove — the sum must reconcile.
+
+**The error-prone heart forks break — and the reference's guards.** The SP uses a scaled-deposit
+accounting (`P` product, `S`/`B` sums per scale) so one offset updates all depositors O(1):
+- `offset` (`StabilityPool.sol:383-406`): `scaleToS[scale] += P·_collToAdd/totalBoldDeposits` (coll
+  gain per unit, rounds down); `newP = numerator/totalBoldDeposits` (P scaled down by the surviving
+  deposit fraction).
+- **`require(newP > 0, "P must never decrease to 0")`** (`:399`) — the classic Liquity invariant; if `P`
+  hit 0 all deposits' value would be wiped. Forks have gotten this wrong.
+- **Multi-exponent scale handling** (`SCALE_FACTOR=1e9`, `MAX_SCALE_FACTOR_EXPONENT=8`, the
+  `while (newP < P_PRECISION/SCALE_FACTOR)` re-scale loop, `:404-406`) — keeps `P` from underflowing
+  across many liquidations. This is the single most fork-misimplemented piece (the original V1
+  "scale factor" subtlety; V2 hardened it to multi-step).
+**The fork-divergence surface (what to diff any fork against):** (1) this `P`/`S`/`B` scale-factor math;
+(2) **recovery mode** (TCR < CCR changes liquidation rules — routinely mis-ported); (3) **redemption
+ordering** (V2 routes redemptions by interest rate; V1 by collateral ratio — forks mixing the two break
+redemption fairness/solvency); (4) the aggregate-interest accounting (`aggRecordedDebt` vs per-trove).
+**Conservation floor: sound and formally verified** in the reference. **No finding in the reference;**
+the actionable fork-hunt is a line-diff of a *specific* fork's StabilityPool/recovery-mode against this
+(named, ready to run on a target). Residual: the collateral **oracle** (the usual external 6b).
+
+---
+
+### Sweep status
+Four mid-caps, all clean: Synthetix V3, Pendle, THORChain, Liquity V2 — established protocols are mostly
+well-audited (often formally), so the lens reads *proportional*: clean floor + named residual, no
+manufactured findings. The genuine fork-bug hunt needs a **named specific fork** to diff against these
+references (Liquity-fork P/S math; lending-fork first-depositor/share-inflation; Solidly-fork gauge
+rewards; Uniswap-fork fee-on-transfer assumptions). **Any real finding → stopped-and-notified privately,
+not logged here.**
