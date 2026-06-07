@@ -347,3 +347,29 @@ consensus-divergence or value-mint, because both chains' substrates (checked ari
 push the failure to liveness/correctness — the capstone "residual shape follows substrate" law, holding
 across three independent non-EVM teams. **MemeCore remains the only value/consensus-shaped code finding**
 — and it's the one chain whose imperative substrate didn't force-fail safe.
+
+---
+
+## R10. Aptos — Coin↔FungibleAsset dual representation (the direct analog of Sui R8 — clean) [non-EVM]
+**Target:** `aptos-labs/aptos-core`, `aptos-framework/sources/coin.move`. The methodology's *direct
+prediction test*: Aptos's ongoing **Coin→FungibleAsset migration** is the **same dual-representation
+class (Bucket 3)** as Sui's address-balance↔coins that had the R8 settlement bug. Does Aptos's version
+conserve, or does it slip the same way?
+- **Balance sums disjoint stores — no double-count.** `balance<CoinType>(owner) = coin_balance(owner) +
+  (paired primary_fungible_store::balance if paired else 0)` (`:..`) — the legacy `CoinStore` and the new
+  `FungibleStore` are distinct, so summing is exact; a value unit lives in one store, never both.
+- **Supply combines disjoint supplies — conserved by 1:1 conversion.** `supply<CoinType>() = coin_supply
+  + fungible_asset::supply(paired_metadata)` (`:824-836`, `*supply += fa_supply`), with `coin_supply`
+  read from the parallel-safe `optional_aggregator`. Because conversion is **1:1 burn-Coin / mint-FA**
+  (`coin_to_fungible_asset` / `fungible_asset_to_coin`, type-guarded — audited in `AUDIT-APTOS-COIN.md`),
+  a unit is counted in exactly one supply at a time, so `coin_supply + fa_supply` is the true total with
+  **no double-count and no drop** across migration.
+- **Why it doesn't hit the Sui bug.** Sui's R8 underflow was a *settlement-path edge* (gas-smashing
+  against an already-drained address-balance reservation). Aptos moves value **atomically** between the
+  two representations (burn↔mint), and gas is reserved up-front — so there's no "drained-then-settle
+  underflow" interaction; the unit is never in both/neither representation.
+**Result: clean** — the dual-representation *conservation core* is sound on Aptos (disjoint-store
+balance/supply summing + 1:1 atomic conversion). This **sharpens the R8 lesson**: dual representations
+are a genuine *frontier* (where bugs appear), but not inherently broken — a careful burn-mint design
+(Aptos) conserves, while a settlement-edge interaction (Sui's gas-smash on a drained AB) slipped. Same
+class, opposite outcomes, decided by whether value moves atomically. **No finding.**
