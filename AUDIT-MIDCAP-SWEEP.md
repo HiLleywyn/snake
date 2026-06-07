@@ -251,3 +251,37 @@ built-in **EMA price oracle** (used by metapools / integrators) is the usual ext
 finding.**
 
 ---
+
+## 9. GMX v1 (GMX) — pool-as-counterparty perp; reserved≤pool + AUM-nets-PnL (clean; oracle-defined residual)
+**Target:** `gmx-io/gmx-contracts`, `contracts/core/{Vault,GlpManager}.sol`. Distinct perp model: the
+GLP liquidity pool is the **direct counterparty** to every leveraged trader (LPs are short trader PnL),
+vs Drift's vAMM or an order book.
+- **Solvency invariant: reserved ≤ pool.** `Vault` tracks `poolAmounts` (LP liquidity),
+  `reservedAmounts` (locked to back open positions), `guaranteedUsd` (USD guaranteed by longs).
+  Opening a position calls `_increaseReservedAmount` which **`_validate(reservedAmounts[token] <=
+  poolAmounts[token])`** (`:1143,1178`) — the pool can never reserve more than it holds, so open
+  positions are always backed.
+- **GLP price already nets trader PnL.** `GlpManager.getAum` (`:136-181`): AUM = Σ poolAmounts·price
+  `+ guaranteedUsd` and **adjusted by global short/long unrealized PnL** (`getGlobalShortDelta`,
+  `:161-164`) — so the GLP unit price reflects the pool's *net obligation* to traders. LPs' claim =
+  pool − traders' net unrealized profit; trader profit is paid from the pool (poolAmounts ↓), trader
+  loss accrues to it. Conservative `maximise` flag picks min/max price for mint vs redeem.
+**Conservation floor: sound** — reserved≤pool guarantees open positions are backed, and the GLP
+valuation nets trader PnL so LPs can't redeem more than the pool's net value. **Residual (large, and
+defining):** the **price oracle**. GMX v1 executes at the oracle price with *zero price impact*, so the
+*entire* risk surface is oracle accuracy — the keeper/median price + spread bounds are the mitigation,
+and oracle manipulation is the canonical GMX-v1 attack class (the most consequential external-6b in the
+sweep). **No finding** in the accounting; the oracle is the named irreducible trust.
+
+---
+
+### Sweep tally (9 entries)
+Nine mid-caps, nine distinct conservation models, all clean: Synthetix V3, Pendle, THORChain, Liquity
+V2, Alchemix, Reserve, EigenLayer, Curve, GMX. Coverage now spans **shared-credit, yield-split,
+cross-chain CLP, CDP/stability-pool, self-repaying, basket+backstop, restaking, amplified-AMM, and
+pool-as-counterparty-perp**. Uniform result: a clever, well-defended conservation floor + the trust
+relocated to an **external value-reporting / oracle** boundary (collateral price, SY rate, Bifrost
+observation, oracle, yield-token value, collateral plugins, AVS slash trigger, amplification/EMA, the
+GMX price feed). The down-market thesis ("smaller = more findings") did **not** hold for *recognizable*
+mid-caps — they are uniformly well-audited; real fork findings would require diffing *specific
+less-audited forks* against these references (the path deferred per the steering choice).
