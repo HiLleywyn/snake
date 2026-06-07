@@ -285,3 +285,52 @@ the finite 50M budget; it does **not** prove live divergent state roots. The fix
 and cheap regardless of which branch is true — sort `validatorList`, propagate the call error** — which
 is exactly why this was routed to the team to resolve reachability against the real gas constant and
 reward contract. Posture unchanged: defensive, no PoC, fix-first.
+
+## Addendum — Pass 5: deeper static dig (re-cloned v1.15.3) — divergence is in the verify path; latency proof strengthened
+
+Re-cloned `memecore-foundation/Go-MemeCore` HEAD `4ab3ee9` (v1.15.3) and read the full path. New, all
+**proven from the Go source**:
+
+- **The validator update is contract-side; `ret` is unused.** `settleRewardsAndUpdateValidators`
+  (`contract.go:85-162`) packs `timedTask(signer, validatorList)` and calls it; the return `ret` is
+  referenced **only** inside `if p.enableEventLogging` (`:126-158`). The "update validators" effect is
+  entirely the contract's own storage writes — the Go side reads nothing back. `signer` (the other
+  calldata arg) is deterministic (`ecrecover`); **only `validatorList` order is non-canonical.**
+- **Both produce and verify rebuild the calldata locally from a map — divergence is in the verify
+  path, not hypothetical.** `Snapshot.Signers` is `map[common.Address]struct{}` (`snapshot.go:27`).
+  Producer: `FinalizeAndAssemble → p.Finalize(...) → settleRewardsAndUpdateValidators(…, snap.Signers)`,
+  then `header.Root = state.IntermediateRoot(...)` (`posa.go:714,720`). Verifier: block import calls
+  `Finalize → settle(…, snap.Signers)` (`posa.go:673`) and compares its computed root to `header.Root`.
+  The synthetic reward call is **not stored in the block** — every importing node **re-derives the
+  calldata by ranging its own `snap.Signers`** (`contract.go:94`, no sort). Go randomizes map
+  iteration, so producer and each verifier feed `timedTask` a **differently-ordered array for the same
+  block.** (Contrast the *epoch* path, which **is** sorted — `verifyValidators` requires
+  `header.Extra == sort(getValidators)` — so only the reward call lacks the sort.)
+
+- **Latency proof, strengthened (and this is the key correction).** Because every importing node ranges
+  its map independently, *if* `timedTask`'s committed state or gas depended on order, producer-vs-
+  verifier roots would diverge on **essentially every block** (orders are independently randomized per
+  node, per block) — and the chain could finalize **nothing**. MemeCore mainnet finalizes blocks.
+  **Therefore the live `timedTask` is provably order-invariant *right now*** — not merely "probably,
+  rare-edge-case," but "must be fully order-commutative or the chain would be wholly broken." So this
+  is **latent fragility, conclusively not a live split.**
+
+- **Which vector could re-arm it (and which can't).** Gas-edge is *unlikely*: under EIP-2929 the gas
+  for a straight reward loop is order-invariant (the cold/warm cost is set by the *union* of slots
+  touched — each distinct slot is cold exactly once regardless of order — and 50M is a large budget).
+  The plausible re-arming vector is an **order-dependent committed write** in a future `timedTask`
+  upgrade — e.g. integer-division **remainder/dust handed to a positional element** (`validatorList[0]`),
+  or a **pool-exhaustion early-exit** ("pay until the pool runs dry"), both of which also make gas
+  order-dependent. Either would make producer-vs-verifier roots mismatch on every block instantly.
+
+### Reframed severity (sharper, and more useful)
+This is best characterized **not** as "critical, exploitable now" but as a **removed determinism
+invariant / latent consensus landmine**: the client provides **no** canonical ordering, so consensus
+correctness rests *entirely* on the **closed, upgradeable** `timedTask` contract remaining
+order-commutative — and that contract is the **mutable** side (the governance ceiling, §4). A routine,
+innocuous-looking reward-logic change (adding remainder handling, a pool cap, per-validator weighting
+with rounding) would **brick consensus** (every block forks producer-vs-verifier), with the failure
+**silenced** by §6-B so nodes finalize divergent "valid" blocks rather than erroring. The fix restores
+the missing client-side guarantee at zero cost: **sort `validatorList`** (parlia does) **and propagate
+the call error.** Current status: **not live, conclusively latent**; the value of fixing it is removing
+a landmine under any future reward-contract upgrade, not patching an active exploit.

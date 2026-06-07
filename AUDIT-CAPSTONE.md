@@ -112,6 +112,20 @@ credible possible consensus split, **not proven** without a gas-accurate live-im
 simulation, and **not** provable by naive order→root comparison. Fix is unconditional either way (sort
 + propagate).
 
+**Pass 5 (deeper static dig, re-cloned v1.15.3) reframes it as a *latent landmine*, not a live bug.**
+Proven: both producer (`FinalizeAndAssemble→Finalize`) and every verifier (`Finalize` on import)
+**rebuild the reward calldata locally** from their own `snap.Signers` *map* (the synthetic call isn't
+stored in the block), so producer and verifiers feed `timedTask` differently-ordered arrays for the
+same block. Strengthened latency proof: since this happens on *every* block, if `timedTask`'s state or
+gas depended on order the chain would fork on ~every block — so a *live, finalizing* MemeCore proves
+the current contract is **fully order-commutative** (conclusively latent, not "rare edge case"). The
+re-arming vector isn't the gas-edge (EIP-2929 makes straight-loop gas order-invariant; 50M is ample)
+but an **order-dependent committed write** in a future `timedTask` upgrade (remainder/dust to
+`validatorList[0]`, pool-exhaustion early-exit). So the true characterization: the client **removed the
+determinism invariant**, leaving consensus correctness resting entirely on the **closed, upgradeable**
+contract staying order-commutative — a routine reward-logic upgrade would brick consensus, silently
+(via B). Cheap fix restores the client-side guarantee.
+
 ---
 
 ## 4. The comparative spectrums (the synthesis)
