@@ -99,6 +99,19 @@ Two consensus-robustness items in `consensus/posa/contract.go::settleRewardsAndU
 Latent (a running chain implies it's currently order-insensitive), but consensus-adjacent — the one
 target in the sweep that produced a real, fixable defect rather than a by-design trust boundary.
 
+**Reachability refinement (Pass 4, `AUDIT-MEMECORE-POSA.md`):** two independent static analyses
+reproduced B+C exactly, and the consensus path is confirmed (`Finalize → settle → state →
+header.Root = IntermediateRoot`). Two corrections sharpen severity without overclaiming: (i) the
+reward call's caller check almost certainly *passes* for the real system-address (`0xffff…fffe`)
+invocation, so the array *is* reached; but (ii) the state root is **MPT write-order-invariant**, so
+non-canonical calldata does **not** automatically diverge. The real split needs order to change the
+*final state* — either the **gas-edge** (the call gas is a finite fixed **50M**, so order→OOG-vs-
+success, and B lets the OOG node finalize a no-reward block while the other finalizes with rewards →
+divergent "valid" roots) or an **order-dependent committed write** (accumulator/dust). Verdict stands:
+credible possible consensus split, **not proven** without a gas-accurate live-implementation
+simulation, and **not** provable by naive order→root comparison. Fix is unconditional either way (sort
++ propagate).
+
 ---
 
 ## 4. The comparative spectrums (the synthesis)

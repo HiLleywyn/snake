@@ -211,3 +211,77 @@ warranted, sort the validator list and enforce the call result. Nothing is poste
 the recommendations (sort the list; propagate the error) are the fix. Companion to
 `AUDIT-DRIFT-PERP.md` / `AUDIT-MARGINFI-LENDING.md` (closed system-contract seams) and
 `AUDIT-GOVERNANCE-CEILING.md` (the upgrade-authority trust root).
+
+## Addendum — Pass 4: independent corroboration + sharpened reachability analysis
+
+Two independent static analyses (external) reproduced §6-B/§6-C **exactly** — same
+`settleRewardsAndUpdateValidators`, same map-ranged `validatorList`, same swallowed `vmenv.Call`
+error, same `state.Finalise(true)`/`return nil`. So the *code shape* is corroborated ("not
+hallucinated"). The work below sharpens **reachability** (the load-bearing question), correcting the
+analysis in **both** directions so the severity is neither over- nor under-stated.
+
+### Consensus-path: confirmed (this is not a background task)
+`Finalize → settleRewardsAndUpdateValidators(…, state, snap.Signers)`, and
+`FinalizeAndAssemble → header.Root = state.IntermediateRoot(...)`. So whatever the reward call does
+to `state` **directly determines the block's state root**, on both the producer and verifier paths.
+Steps proven from the repo: (1) `snap.Signers` is map-derived → order is non-canonical per node/run;
+(2) that order becomes the `timedTask` calldata; (3) it runs in finalization; (4) errors don't abort
+finalization (§6-B). A repo search found **no sort/fix commit**.
+
+### Correction toward *more* concern — the caller check likely passes for the real call
+The repo reward bytecode dispatches selector **`0x992ffba7`** (`timedTask(address,address[])`) to a
+function that begins with a caller check. The consensus engine calls **from the system address
+`0xffff…fffe`**. If that leading check is the standard `require(msg.sender == 0xffff…fffe)`
+(`onlySystem`), the consensus invocation **passes** it and proceeds to use the validator array — so
+the hopeful "reverts on the caller check before touching the array" branch does **not** apply to the
+real finalization call (it would only fire for some *other* caller). Confirm what the check compares
+to; if it's the system address, the array-is-reached branch is the live one.
+
+### Correction toward *less* concern (load-bearing) — the state root is write-order-invariant
+The Ethereum state root (`IntermediateRoot`) is a pure function of the final `{address → account}`
+MPT, **independent of write/iteration order**. So "honest nodes build different calldata → different
+root" is **not automatic**: if `timedTask` succeeds and the rewards are a commutative set of balance
+writes, every order yields the *same* final state → the *same* root → **no divergence**, despite the
+non-canonical calldata. This is precisely why §6-C is *latent, not demonstrated*, and why a naive
+`[A,B,C]` vs `[C,B,A]` root-compare at a comfortable gas budget can show equal roots and **falsely**
+read "inert."
+
+### Therefore the real split requires order to change the *final state* — two specific vectors
+1. **Gas-edge (the genuine B×C split path).** The reward call's gas is a **finite, fixed
+   `GasLimit: 50_000_000`** (`contract.go:50`) — so the gas-edge is **structurally open**, not closed
+   by an unlimited-gas argument. If `timedTask`'s cost under some orderings approaches 50M, then for
+   the *same block* one node's order completes (writes rewards) while another's **OOGs → reverts**
+   (all writes rolled back); because the error is **swallowed (§6-B)**, the OOG node *finalizes a
+   no-reward block anyway* while the other finalizes a with-reward block → **two "valid" blocks,
+   divergent roots.** B and C are *both* required: without the swallow, the OOG node errors loudly
+   instead of silently producing a divergent block. *(A full revert in **every** order is
+   order-invariant → same no-op root → "silent reward-settlement failure," a real bug but not a
+   split.)*
+2. **Order-dependent committed computation.** Even with no OOG, divergence occurs if the *successful*
+   path writes an order-sensitive value — a stored accumulator, integer-division remainder/dust
+   handed to "the first" validator, or duplicate handling. Gas-independent; would survive even
+   unlimited gas.
+
+If each **verifier** rebuilds the calldata locally from its own `snap.Signers` map iteration (rather
+than replaying the producer's calldata verbatim), the divergence is **producer-vs-verifier on the same
+block** — real, not hypothetical — but still gated by the two vectors above (MPT invariance).
+
+### The decisive test (corrected) — and an honest "can't run it here"
+I also cannot execute it from this environment (no GitHub DNS to clone/build; and I will not build a
+triggering PoC). The gas-accurate simulation the team can run:
+- Same parent state / header / signer set, at the **actual mainnet gas budget**, against the **live**
+  reward implementation (not privnet genesis).
+- **Vector 1:** find whether any reordering flips success↔OOG at 50M. If yes → catastrophic.
+- **Vector 2:** among orders that all succeed, compare roots. Differ → catastrophic; identical →
+  this vector inert.
+- All orders fully revert → "silent reward-settlement failure," not a split.
+
+### Net severity (sharpened, unchanged in spirit)
+**Credible possible consensus split** via the gas-edge × swallowed-error interaction (and/or an
+order-dependent committed write); **not proven** without a gas-accurate, live-implementation
+simulation; and specifically **not** provable by naive order→root comparison (MPT write-order
+invariance). The repo proves the non-canonical calldata, the swallowed error, the consensus path, and
+the finite 50M budget; it does **not** prove live divergent state roots. The fix is **unconditional
+and cheap regardless of which branch is true — sort `validatorList`, propagate the call error** — which
+is exactly why this was routed to the team to resolve reachability against the real gas constant and
+reward contract. Posture unchanged: defensive, no PoC, fix-first.
