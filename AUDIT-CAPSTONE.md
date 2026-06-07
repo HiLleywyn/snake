@@ -186,6 +186,12 @@ unique-hash)` (a strict total order), so even parallel *blocks* yield one agreed
 order — the pointed positive inverse of MemeCore. The recurring trick at both layers: **collect the
 parallel/unordered set, then impose a total order with a unique tiebreak before any state depends on
 it.**
+*Cautionary third mode (EOS/Antelope):* the determinism hazard can also be **delegated to the
+runtime** rather than avoided in code — EOS's RAM Bancor market computes in `double`/`std::pow` *inside
+consensus* (structurally the MemeCore hazard) and is safe **only** because the Antelope WASM VM
+mandates deterministic floating point (SoftFloat). The guarantee lives a layer below the contract, so
+the floor is "trust the runtime's float determinism." The closest non-defective neighbor of the
+MemeCore finding — same hazard, contained one level down instead of leaking up.
 
 ### (e) Proof-of-personhood, compared
 **Humanity** keeps *all* sybil-resistance off-chain (vanilla EAS + an attester key). **World ID**
