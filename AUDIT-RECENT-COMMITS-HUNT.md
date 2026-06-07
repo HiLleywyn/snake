@@ -442,3 +442,24 @@ determinism, OCC ordered-commit) forces it. The only value/consensus-shaped code
 corpus remains **MemeCore** — the lone imperative-substrate case whose swallowed-error + nondeterministic
 map could fail *unsafe*. That contrast is now backed by 4 EVM-delta chains + 6 non-EVM/EVM recent-code
 reads with real bugs, all on the safe side of the line.
+
+---
+
+## R14. Cosmos SDK — x/staking redelegate-from-removed-source fix (real, fixed; liveness-shaped) [non-EVM]
+**Target:** `cosmos/cosmos-sdk`, `1a79e79`/#26408. **The bug (real, fixed):** `MsgBeginRedelegate`
+**failed** when a delegator redelegated *all* shares from an **unbonded source validator that was removed
+after unbonding** — the redelegation path assumed the source validator object still existed. **Failure
+shape: liveness/availability** — the redelegate tx fails and the delegator's stake is *stuck* on the
+removed validator; **no value is lost** (the shares/tokens stay correctly tracked — conservation holds),
+the delegator just can't move them until the fix (which makes it a complete-now redelegation, dest gets
+the shares). Already fixed. **Again fail-safe** (stuck-stake liveness, not a conservation breach).
+
+### Recent-bug shape — invariant across 5 surfaces / 4 non-EVM teams
+Sui AB settlement (R8, liveness) · Aptos const-fold (R9, correctness) · Cosmos Block-STM cancel (R13,
+liveness) · Cosmos staking redelegate (R14, liveness) — every real recent bug **failed safe**
+(liveness/correctness, conservation intact), forced by each chain's substrate (checked arithmetic,
+determinism, OCC, exact share-accounting). The one chain whose substrate did **not** force fail-safe —
+imperative geth-fork consensus with a swallowed error + nondeterministic map — is **MemeCore**, the sole
+value/consensus-shaped finding. The dividing line is now drawn through ~a dozen real-or-audited recent
+defects: **substrate that fails safe → liveness/correctness bug, caught & fixed; substrate that doesn't
+→ the one finding.**
