@@ -463,3 +463,24 @@ imperative geth-fork consensus with a swallowed error + nondeterministic map —
 value/consensus-shaped finding. The dividing line is now drawn through ~a dozen real-or-audited recent
 defects: **substrate that fails safe → liveness/correctness bug, caught & fixed; substrate that doesn't
 → the one finding.**
+
+---
+
+## R15. Celestia — proof-querier input-size bound (DoS guard) (real, fixed; liveness-shaped) [non-EVM, DA layer]
+**Target:** `celestiaorg/celestia-app` HEAD `a3d68db`, `cfb0162 #7254`. Fifth non-EVM team, and a
+genuinely different architecture (a **data-availability layer** — the "conservation" analog is
+deterministic data-square layout + share commitments, not value). The recent window is dominated by
+infra/test hardening; the one security-relevant fix: the inclusion-proof query handlers now **bound
+`req.Data` to `DefaultUpperBoundMaxBytes`** (the governance block-MaxBytes upper bound) and reject
+oversized inputs *before* any allocation, "preventing callers from triggering an unbounded
+`square.Construct`." **Failure shape: liveness/DoS** — an unbounded query input could exhaust a node's
+resources; it's a **query-RPC** handler (node-local), not consensus, and conservation/consensus is
+untouched. Real, recent, fixed, fail-safe. (The DA square-layout determinism core lives in the
+`go-square` dependency — mature, not pulled here.) **No finding.**
+
+### Five non-EVM teams, one invariant
+Solana · Sui · Aptos · Cosmos · Celestia — every real recent bug/fix is **liveness, correctness, or
+DoS** (fail-safe), conservation and consensus-safety intact, because each substrate forces it. Plus 3
+EVM stacks (geth/reth/op-stack) clean. The lens has now been run across **8 chains' freshest code +
+6 large-cap consensus deltas**, with **every real recent defect on the safe side of the line** — and
+**MemeCore the only one across it.** The thesis is no longer a claim; it's a measured boundary.
