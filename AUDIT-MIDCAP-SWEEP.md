@@ -58,3 +58,36 @@ yield, but it's bounded by actual SY reserves and the SY wrapper is user-chosen)
 **no finding.**
 
 ---
+
+## 3. THORChain (RUNE) — cross-chain CLP with solvency-as-checked-invariant + auto-halt (clean; strong positive)
+**Target:** `gitlab.com/thorchain/thornode`, `x/thorchain/` (Cosmos-SDK app). Picked for high signal:
+complex, cross-chain (external-chain TSS vaults), and a real 2021 exploit history. Audited the swap CLP
+math + the post-hack solvency defenses. **Result: clean — and notably well-hardened.**
+- **In-pool conservation (CLP).** `GetSwapCalc` (`swap_current.go:548-553`): slip-based output
+  `emit = x·X·Y/(x+X)²`; the swap **reverts/zeroes if `emitAssets.GTE(Y)`** (`:360`) so a swap can never
+  drain more than the pool's output depth, and pool balances update via underflow-safe `SafeSub`
+  (`:408,412`). Sound constant-product-family floor; RUNE is the settlement asset (asset↔asset = double
+  swap).
+- **The cross-chain seam (the irreducible 6b).** The asset side of every pool lives in **external-chain
+  vaults** (Asgard TSS), observed by the Bifrost. This is the settlement seam where THORChain was
+  actually exploited (the observation/router layer), and it's the irreducible trust: *do validators
+  correctly observe external-chain vault balances?*
+- **Solvency as a continuously-checked invariant + auto-halt (the standout, post-hack hardening).**
+  Two layers: (a) **per-tx vault-underflow clamp** — `detectVaultSubFundsClamp`
+  (`handler_observed_tx_helpers.go:917-946`): if an observed outbound would subtract more of an asset
+  than the vault holds, it emits a security event and **halts both signing and trading on that chain**
+  (`MimirTemplateHaltSigning` + `HaltTrading`); it **aggregates coins by asset first** to catch a
+  duplicate-asset sum that no single entry would trip (a real, considered edge-case guard). (b)
+  **validator-attested solvency voter** — `handler_solvency.go` aggregates a supermajority of active
+  validators' observed vault balances (`processSolvencyAttestation`) and halts on insolvency. So the
+  network **verifies vault solvency every block and halts on divergence rather than letting an
+  insolvent vault be drained** — the explicit "halt over loss" discipline, the exact inverse of the
+  MemeCore swallowed-error class, applied to the cross-chain seam.
+**Conservation floor: sound + defended.** The CLP conserves in-pool; the cross-chain seam is the
+irreducible trust, but it is wrapped in a per-tx clamp + supermajority-attested solvency check with
+auto-halt — a strong member of the checked-invariant family (XRPL/Stellar/Algorand/Berachain) extended
+to cross-chain settlement. **Residual:** the Bifrost **observation layer** (correctness of external-
+chain balance observation under TSS; the solvency checks are only as good as the attestations feeding
+them — mitigated by supermajority, not eliminated) — the deepest surface, not opened. **No finding.**
+
+---
