@@ -1,8 +1,12 @@
 # Trust-Cartography Capstone — Findings Across the Whole Corpus
 
 *The wrap-up. One reusable lens — six buckets + three coordinates (equivalence / conservation
-floor / governance ceiling) — applied to ~25 systems across every major execution paradigm. This
+floor / governance ceiling) — applied to ~40 systems across every major execution paradigm. This
 records what was found, the comparative spectrums that emerged, and the laws that held.*
+
+*(Updated to fold in the L1/rollup expansion sweep: Aptos, Monad + MonadBFT, Sei, Berachain, NEAR,
+Stellar, Cardano, XRPL, TON, Osmosis, TradePort, Avalanche, Algorand, Hyperliquid, Polkadot, zkSync,
+Optimism — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
 
 ---
 
@@ -44,6 +48,32 @@ finding the real bug where one existed, and naming the trust precisely where non
 | Humanity / World ID | proof-of-personhood | EAS (none) / ZK tree-integrity | off-chain orb/attester | see §5 comparison |
 | LaunchLab / Alpha-Vault / Vault-SDK / Defi App | closed/mirror | — | unverifiable | auditability floor |
 
+### Expansion sweep (L1/rollup data points added after the original ~25)
+
+| Target | Paradigm | Conservation floor | Residual / ceiling | Outcome |
+|---|---|---|---|---|
+| **Aptos** | Move L1 | linear `Coin` + Move-Prover supply specs | copyable `MintCapability` (by design) | clean; floor verified on Aptos's own verifier |
+| **Monad** | parallel EVM | OCC read-set + ordered commit | relaxed-merge comparator (6a) | clean; OCC = "parallel==sequential" |
+| **MonadBFT** | BFT consensus | safety = no conflicting QC (monotonic vote + >2/3) | BLS aggregation, pacemaker liveness | clean; halt-on-violation `assert!` |
+| **Sei** | parallel EVM (Go) | OCC multiversion store + validation | read-kind comparator (6a) | clean; 3rd OCC twin |
+| **Berachain** | EVM (PoL) | BGT `invariantCheck`: `balance ≥ totalSupply` | BlockRewardController bounds | clean, strong positive |
+| **NEAR** | sharded async | deterministic refund receipts | named global balance check (historical) | clean; honest gap noted |
+| **Stellar** | trust-line DEX | `ConservationOfLumens` + `LiabilitiesMatchOffers` | inflation/fee-pool deltas | clean; rich invariant suite |
+| **Cardano** | eUTXO multi-asset | `consumed == produced` (`MaryValue`) | Plutus script-gated mint | clean; most legible floor |
+| **XRPL** | classic L1 | `XRPNotCreated`: Δdrops `== −fee` | — | clean; tightest floor |
+| **TON** | async actor | deterministic on-chain bounce | — | clean; reduced-6a refund |
+| **Osmosis** | Cosmos AMM | registered superfluid invariant | risk-adjusted multiplier | recon, no finding |
+| **TradePort** | closed Aptos NFT mkt | bid escrow holds linear `Coin` (ABI-read) | closed program | auditability floor mapped via ABI |
+| **Avalanche** | AVM multi-asset UTXO | `FlowChecker`: `produced ≤ consumed` per asset | atomic shared-memory seam (6) | clean |
+| **Algorand** | account L1 | per-block recomputed `totals.All()` gate | rewards-rounding identity | clean, strong positive |
+| **Hyperliquid** | perps L1 (closed core) | Bridge2: >2/3 quorum + dispute window | **closed HyperCore (6b)** | clean seam; core = irreducible trust |
+| **Polkadot** | Substrate L1 | `Imbalance` type → `Drop` books `TotalIssuance` | `saturating_*` merge; `Unsafe*Accounting` | clean, strong positive |
+| **zkSync** | ZK rollup | **validity proof** gates execute+withdraw | circuit + verifier + governance (6b) | clean gating; circuit = irreducible |
+| **Optimism** | optimistic rollup | **fraud proof** (`DEFENDER_WINS` + window) | FPVM + honest challenger + Guardian (6b) | clean gating; FPVM = irreducible |
+
+Across the expansion: **no new findings** — every target resolved to a sound conservation floor + a
+named residual, exactly as the original 25 did. MemeCore remains the lone exploitable-class finding.
+
 ---
 
 ## 3. The one finding (MemeCore PoSA — disclosed to the team)
@@ -71,13 +101,18 @@ target in the sweep that produced a real, fixable defect rather than a by-design
 All three move **down and outward**, away from the code that looks in charge.
 
 ### (b) Conservation-location ladder (strongest → weakest enforcement)
-type system (Sui linear types) > cryptographic algebra (MWEB commitments, World ID ZK) >
-ledger-model atomicity (Daml) > consensus re-derivation (Sui epoch, MemeCore) > runtime balance
-check (UTXO, AMM rounding, lending rate-decomposition, perp settlement cap) > account-balance
-mutation (EVM/Cosmos imperative). **Strength is inversely correlated with how much you must trust
-the author** — and it determines the residual's *shape*: type/crypto-enforced systems push fragility
-to **liveness** (abort/safe-mode); imperative systems push it to **value** (a missing check = mintable
-supply).
+type system — *prohibitive* (Sui/Aptos Move linear types: `Balance`/`Coin` can't be dropped) **and**
+*self-accounting* (Substrate `Imbalance`: `#[must_use]` + `Drop` books the delta to `TotalIssuance`)
+> cryptographic algebra (MWEB commitments, World ID ZK, **zkSync validity proof**) >
+ledger-model atomicity (Daml) > recomputed/asserted global invariant (**Algorand `totals.All()`**,
+XRPL/Stellar/Berachain invariant-checks, Aptos Move-Prover specs) > consensus re-derivation (Sui
+epoch, MemeCore) > runtime balance check (UTXO equation Cardano/Avalanche, AMM rounding,
+lending rate-decomposition, perp settlement cap) > account-balance mutation (EVM/Cosmos imperative).
+**Strength is inversely correlated with how much you must trust the author** — and it determines the
+residual's *shape*: type/crypto-enforced systems push fragility to **liveness** (abort/safe-mode);
+imperative systems push it to **value** (a missing check = mintable supply). *Refinement from the
+expansion:* the type-system rung now has two strategies — Move **forbids** the drop, Substrate
+**permits and accounts for** it; same "a balance delta can't vanish" guarantee, opposite mechanism.
 
 ### (c) Governance-ceiling spectrum (most → least centralized)
 **$H/HToken** (owner: uncapped mint + force-burn + upgrade) → **WLFI** (3-of-5 Safe swaps the impl)
@@ -92,6 +127,32 @@ DeXe, World ID) → **verified-but-swappable** (WLFI: verified ≠ running) → 
 closed** (LaunchLab, Alpha-Vault, Vault-SDK) → **audit-PDFs only** (Defi App) → no source. The
 **withheld layer is consistently the orchestration / enforcing logic** — exactly where conservation
 is enforced or broken.
+
+### (f) Settlement-seam trust spectrum (how cross-layer withdrawals are made safe)
+The expansion sweep nailed down the three ways a chain lets value *leave* to an L1/host while
+keeping conservation — graded by the **honesty assumption** each needs for *safety* (not liveness):
+- **Validity proof (zkSync)** — output trusted because a SNARK proves it valid; **0-of-N** honesty,
+  purely cryptographic. A fully-malicious operator can halt but cannot steal. Irreducible oracle: the
+  ZK circuit.
+- **Fraud proof (Optimism)** — output trusted unless disproven in a challenge window; **1-of-N honest
+  watcher + L1 liveness** (the watcher must be able to transact during the window). Irreducible
+  oracle: the FPVM (Cannon) single-step proof.
+- **Multisig + dispute (Hyperliquid Bridge2)** — output trusted because >2/3 validators signed;
+  **>2/3 honest stake** + watchers/lockers. Irreducible oracle: the closed L1 + the validator set.
+This is the sharpest **cryptographic-vs-social** contrast in the corpus and the concrete realization
+of the §9 equivalence coordinate. Note the recurring shape *underneath* all three (and Avalanche's
+atomic seam, and Canton/Splice): **request → window → finalize, with an invalidation/fraud path
+during the window** — the universal optimistic-settlement skeleton.
+
+### (g) The determinism / parallel-execution spine (parallel == sequential)
+A second cross-cutting family the expansion confirmed: **OCC + deterministic ordered commit** as the
+universal "concurrent execution equals sequential" design — verified structurally identical across
+three languages: **Monad** (C++), **Aptos Block-STM** (Rust), **Sei** (Go). Read-set capture →
+conflict validation → re-execute at a new incarnation → commit in strict txn order. Its *negation* is
+the lone finding: **MemeCore's non-deterministic map iteration** (§3) is exactly what this family
+forbids. Determinism is conservation's quiet prerequisite — a chain that can't agree on *order* can't
+agree on *balances*. (Avalanche's canonical input/output sort and MonadBFT's monotonic per-round vote
+are the same discipline in the validity and consensus layers respectively.)
 
 ### (e) Proof-of-personhood, compared
 **Humanity** keeps *all* sybil-resistance off-chain (vanilla EAS + an attester key). **World ID**
@@ -121,7 +182,18 @@ who is a unique human; the chain can at best prove the bookkeeping is correct.
 5. **Closed enforcing-logic is the modern default and the real frontier.** Across Solana
    launchpads/vaults and app-chains, the audited/published artifact is increasingly the *mirror*,
    not the *program* — so the discipline must include *naming what you cannot see* as a first-class
-   output.
+   output. *Expansion corollary (Hyperliquid):* auditability can **split** — the money-custody seam
+   (Bridge2) was fully open while the *enforcing core* (HyperCore) was closed; map each layer
+   separately rather than calling the whole system "closed" or "open."
+6. **Every conservation guarantee bottoms out on one off-chain-correctness oracle — name it.** The
+   expansion made this unmissable: zkSync's circuit, Optimism's FPVM, Hyperliquid's validators,
+   Drift's price oracle, World ID's orb. The on-chain code can *correctly honor the verdict* (zkSync's
+   `verifier.verify`, Optimism's `DEFENDER_WINS` gate, Bridge2's quorum) — auditing that wiring is
+   tractable and was clean everywhere — but *whether the verdict itself is sound* is the irreducible
+   trust. The honest deliverable is always: "the gate is correctly wired; here is the single oracle it
+   trusts." Conservation-via-recompute (Algorand's `totals.All()`, Substrate's self-accounting `Drop`)
+   is the one design that needs **no** external oracle — the strongest floors are the ones that
+   re-derive the invariant in-protocol rather than trusting any reported state.
 
 ---
 
@@ -134,10 +206,14 @@ redirected to passive analysis + owner-run checks + auditing the relevant open-s
 (phpBB) — the boundary held even under repeated pushing. Public audits used `git clone` / public
 artifacts only; nothing catastrophic was ever posted.
 
-> **Bottom line:** one reusable lens, ~25 systems, every major paradigm — and a consistent two-part
-> answer each time: *a conservation floor (named, graded by substrate) and a residual that is a
-> governance ceiling or an irreducible 6b equivalence.* The framework found the one real bug, named
-> every trust boundary in proportion, and never overclaimed.
+> **Bottom line:** one reusable lens, ~40 systems, every major paradigm (Move/Rust L1s, parallel
+> EVMs, BFT consensus, eUTXO/multi-asset UTXO, account L1s, ZK and optimistic rollups, async-actor
+> chains, Substrate, closed-core perps DEXs) — and a consistent two-part answer each time: *a
+> conservation floor (named, graded by substrate) and a residual that is a governance ceiling or an
+> irreducible 6b equivalence/oracle.* The framework found the one real bug, named every trust boundary
+> in proportion, and never overclaimed. The expansion added no findings — it added *resolution*: a
+> filled-in conservation ladder, a settlement-seam trust spectrum (validity → fraud → multisig), and a
+> cross-language determinism spine (OCC) whose negation is precisely the one bug.
 
 Companion index: `AUDIT-METHODOLOGY.md`, `AUDIT-METHODOLOGY-CHECKLIST.md`,
 `AUDIT-METHODOLOGY-RETROSPECTIVE.md` (§1–11), `AUDIT-GOVERNANCE-CEILING.md`,
