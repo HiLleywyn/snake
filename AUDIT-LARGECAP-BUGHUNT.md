@@ -116,3 +116,37 @@ instructive: it *contains* the MemeCore smell (a map-range in epoch sealing) but
 `Build()` — caught and cleared only by tracing into the dependency. The pattern holds firmly: large-cap
 teams canonicalize before consensus-critical use; MemeCore's raw unsorted map → system call is the
 genuine outlier.
+
+---
+
+## L4. Celo (CELO) — custom fee-currency state-transition delta: ERC-20 gas, debit==credit (clean)
+**Target:** `celo-org/op-geth` HEAD `6d8cea0`, `core/state_transition.go` + `contracts/celo`. Celo's
+delta is a **modification of the conservation-critical fee path**: gas can be paid in allowlisted ERC-20
+"fee currencies," so `buyGas`/refund/fee-distribution are custom. This is exactly the kind of edit to
+the EIP-1559 burn/fee path (audited clean in vanilla geth, `AUDIT-ETHEREUM-EIP1559.md`) where bugs hide.
+- **Conservation holds exactly (debit == credit).** Debit: `buyGas` → `subFees(mgval)` where
+  `mgval = gasLimit·gasPrice` (`:330-392`). Credit (fee-currency path, `CreditFees`, `:804-833`):
+  `refund = gasRemaining·gasPrice`, `tipTxFee = gasUsed·gasPrice − gasUsed·baseFee`,
+  `baseTxFee = gasUsed·baseFee` → distributed to payer / coinbase / FeeHandler. Sum =
+  `gasRemaining·price + gasUsed·price = gasLimit·price = mgval`. **Exact** — no leak in the custom path.
+- **Class B (errors) — clean.** `if err := contracts.CreditFees(...); err != nil { return nil, err }`
+  (`:835-839`) — a failed fee-currency credit **aborts** the tx (no silent strand/divergence). The
+  upfront `canPayFee` balance gate precedes the debit (`:378`).
+- **Malicious-fee-currency risk is bounded.** Fee currencies must be **allowlisted** (the
+  `FeeCurrencyDirectory` registry, governance-vetted), and the fee-currency call carries a bounded
+  **intrinsic gas** (`CurrencyIntrinsicGasCost`, `:129`, capped) — mitigating the "arbitrary ERC-20
+  code in the gas path" reentrancy/gas-grief concern.
+- **Difference from vanilla geth (noted, not a bug):** baseFee routes to the **FeeHandler** (buyback/
+  burn/community), *not* the in-protocol burn — conserved (distributed), just a different sink.
+**Result: clean** — the custom fee path conserves exactly, propagates credit errors, and bounds the
+fee-currency contract call. **Residual:** the **fee-currency allowlist governance** (a malicious/buggy
+*allowlisted* ERC-20 is the trust surface, vetted by governance) and the **exchange-rate oracle**
+(`ConvertCeloToCurrency`, `:821` — the CELO↔fee-currency rate is a trusted input). **No finding.**
+
+### Status (4 large-cap deltas, all clean)
+BSC (parlia+fast-finality), Polygon (bor state-sync), Sonic (Lachesis epoch-seal), Celo (ERC-20
+fee-currency). Four structurally-different large-cap deltas — consensus reward/validator, cross-layer
+state-sync, DAG epoch-seal, and a custom fee/conservation path — **all clean** on the MemeCore classes
+and on conservation. The custom fee path (Celo) is the most conservation-relevant edit and it balances
+to the wei. Consistent result: large-cap deltas are carefully engineered; the trust sits at governance
+(allowlists, upgrade authority) and oracle inputs, not at exploitable code bugs.
