@@ -373,3 +373,35 @@ balance/supply summing + 1:1 atomic conversion). This **sharpens the R8 lesson**
 are a genuine *frontier* (where bugs appear), but not inherently broken — a careful burn-mint design
 (Aptos) conserves, while a settlement-edge interaction (Sui's gas-smash on a drained AB) slipped. Same
 class, opposite outcomes, decided by whether value moves atomically. **No finding.**
+
+---
+
+## R11. Sui — Mysticeti consensus linearizer (DAG→total-order determinism) (clean) [non-EVM]
+**Target:** `MystenLabs/sui`, `consensus/core/src/linearizer.rs` + `commit.rs`. The fresh-consensus
+counterpart to R8: Mysticeti's DAG→total-order commit (the determinism spine — does a parallel DAG
+linearize to one canonical order across nodes?). The v3 commit rule (`LeaderSlotDecider`, `#26723`) is
+the newest piece.
+- **Canonical commit order.** `linearize_sub_dag` (`:156`) collects the sub-DAG under each committed
+  leader and **`sort_sub_dag_blocks(&mut to_commit)`** (`:215`) before committing; the sort key is
+  **`a.round.cmp(&b.round).then_with(|| a.author.cmp(&b.author))`** (`:524`) — round primary, author
+  tiebreak: a **strict total order** (authors unique per round), so the commit sequence is canonical
+  regardless of traversal/map order. The MemeCore class (nondeterministic order → consensus) is
+  structurally absent.
+- **gc_round bound.** Only blocks with `round > gc_round` are committed (asserted `:209`), a
+  deterministic garbage-collection floor — no committing below the GC horizon, consistent across nodes.
+**Result: clean** — Mysticeti linearizes the DAG into one canonical (round, author) order per committed
+leader, the same determinism discipline as Kaspa GHOSTDAG and Solana Alpenglow. **Residual:** the
+**leader-selection commit rule** (`universal_committer` / v3 `LeaderSlotDecider`) — that the leader
+schedule + commit decision are themselves deterministic and safe (no two conflicting leaders committed)
+is the deeper consensus surface, not opened. **No finding.**
+
+### Recent-commits hunt — final tally (R1–R11)
+Eleven fresh-code reads across **3 EVM stacks** (geth, reth, op-stack interop ×3-deep) and **3 non-EVM
+teams** (Solana ×2, Sui ×2, Aptos ×2). Determinism, conservation, and consensus-safety primitives all
+**clean** except the **two real (already-fixed) recent bugs**, which landed on the **two predicted
+frontier classes**: Sui address-balance settlement (R8, dual-representation, liveness-shaped) and Aptos
+const-fold overflow (R9, compile≡runtime equivalence, correctness-shaped). The directly-analogous
+surfaces I then checked were clean (Aptos Coin↔FA R10; Sui Mysticeti determinism R11), showing the
+classes are *frontiers*, not universal flaws. Across every chain the failure shape obeyed the substrate
+law (checked/deterministic → fail-safe as liveness/correctness), and **MemeCore stays the only
+value/consensus-shaped code finding** — the lone imperative-substrate case that didn't force-fail safe.
