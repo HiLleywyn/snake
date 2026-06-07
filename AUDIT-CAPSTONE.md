@@ -1,12 +1,12 @@
 # Trust-Cartography Capstone — Findings Across the Whole Corpus
 
 *The wrap-up. One reusable lens — six buckets + three coordinates (equivalence / conservation
-floor / governance ceiling) — applied to ~40 systems across every major execution paradigm. This
+floor / governance ceiling) — applied to ~45 systems across every major execution paradigm. This
 records what was found, the comparative spectrums that emerged, and the laws that held.*
 
 *(Updated to fold in the L1/rollup expansion sweep: Aptos, Monad + MonadBFT, Sei, Berachain, NEAR,
 Stellar, Cardano, XRPL, TON, Osmosis, TradePort, Avalanche, Algorand, Hyperliquid, Polkadot, zkSync,
-Optimism — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
+Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
 
 ---
 
@@ -70,6 +70,11 @@ finding the real bug where one existed, and naming the trust precisely where non
 | **Polkadot** | Substrate L1 | `Imbalance` type → `Drop` books `TotalIssuance` | `saturating_*` merge; `Unsafe*Accounting` | clean, strong positive |
 | **zkSync** | ZK rollup | **validity proof** gates execute+withdraw | circuit + verifier + governance (6b) | clean gating; circuit = irreducible |
 | **Optimism** | optimistic rollup | **fraud proof** (`DEFENDER_WINS` + window) | FPVM + honest challenger + Guardian (6b) | clean gating; FPVM = irreducible |
+| **Cosmos `x/bank`** | Cosmos substrate | matched mint/burn + `SendCoins` 1:1; `math.Int` halts | **registered invariant removed in HEAD** | clean; conserve-by-construction note |
+| **IBC ics20** | cross-chain (light client) | escrow/mint 1:1 + bank underflow backstop | counterparty consensus (4th seam model) | clean; blast-radius isolated |
+| **Monero** | RingCT privacy | Pedersen `Σin = Σout + fee·H` + range proofs | range-proof + DL soundness (6b) | clean; completes privacy triad |
+| **ICP** | canister ledger | **complement-pool** (`supply = max − token_pool`, derived) | trap-rollback platform guarantee | clean; can't-drift design |
+| **Kaspa** | BlockDAG (GHOSTDAG) | UTXO `out ≤ in` | blue/red coloring feeding blue_work | clean; DAG linearized deterministically |
 
 Across the expansion: **no new findings** — every target resolved to a sound conservation floor + a
 named residual, exactly as the original 25 did. MemeCore remains the lone exploitable-class finding.
@@ -161,6 +166,14 @@ the lone finding: **MemeCore's non-deterministic map iteration** (§3) is exactl
 forbids. Determinism is conservation's quiet prerequisite — a chain that can't agree on *order* can't
 agree on *balances*. (Avalanche's canonical input/output sort and MonadBFT's monotonic per-round vote
 are the same discipline in the validity and consensus layers respectively.)
+*Now two layers wide:* the spine extends from **execution** (OCC ordered-commit: Monad/Aptos/Sei,
+"parallel execution == sequential") to **block production itself** — **Kaspa GHOSTDAG** linearizes a
+*parallel BlockDAG* into one canonical order by re-sorting the unordered mergeset on `(blue_work,
+unique-hash)` (a strict total order), so even parallel *blocks* yield one agreed transaction sequence
+("DAG == linear chain"). Kaspa is the most parallel point in the corpus and still enforces a canonical
+order — the pointed positive inverse of MemeCore. The recurring trick at both layers: **collect the
+parallel/unordered set, then impose a total order with a unique tiebreak before any state depends on
+it.**
 
 ### (e) Proof-of-personhood, compared
 **Humanity** keeps *all* sybil-resistance off-chain (vanilla EAS + an attester key). **World ID**
