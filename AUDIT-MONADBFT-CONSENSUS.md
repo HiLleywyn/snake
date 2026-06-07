@@ -79,11 +79,31 @@ conflicting QCs; *across* rounds, two-chain commit + coherency ⇒ a committed b
 (honest validators won't vote a conflicting non-coherent branch, so no competing QC forms after
 commit). NE/NEC adds tail-fork resistance on top. **enforced.**
 
+### Pass 3 — the quorum foundation (OPENED): >2/3 distinct stake, dup-guarded, invalid-sigs removed
+
+The foundation invariant #1 leans on — *a QC genuinely represents a supermajority of distinct
+validators* — opened (`vote_state.rs`, `monad-validator/src/validator_set.rs`):
+- **Votes aggregated by author** — `round_pending_votes.insert(author, sig)` (`vote_state.rs:130`):
+  a map keyed by author, so a validator's vote is stored once (re-votes overwrite). First-supermajority
+  forms the QC; one QC per round (`:36`).
+- **Supermajority = stake-weighted, strictly > 2/3** — `has_super_majority_votes` thresholds at
+  `total_stake * 2 / 3 + 1` (`validator_set.rs:262`); the threshold is by **stake** (PoS), `voter_stake
+  >= threshold` (`:280`). Correct BFT bound (tolerates < 1/3 Byzantine stake).
+- **Duplicate guard** — `calculate_current_stake` returns `Err(DuplicateValidator)` if any voter
+  appears twice (`:287-288`): explicit anti-double-count, belt-and-suspenders with the map aggregation.
+- **Invalid signatures removed before the count** — invalid voters are dropped and stake recomputed;
+  the QC forms only if the *remaining valid distinct stake* is supermajority (`vote_state.rs:204`,
+  tests `:490-509`). A forged vote can't inflate a QC.
+
+So **QC = > 2/3 distinct, valid, stake-weighted votes.** By quorum intersection, two such sets overlap
+in > 1/3 stake ⇒ contain an honest validator (since < 1/3 Byzantine) ⇒ who voted once per round
+(`safety.rs`) ⇒ **no two conflicting QCs in a round.** The full safety chain is now traced through
+actual code: vote aggregation → quorum threshold → per-round discipline → cross-round lock/commit.
+**enforced.**
+
 ### Remaining (read only at interface)
-Full BFT safety + liveness additionally rests on:
-- **QC/TC formation & quorum intersection** (`monad-consensus-types/quorum_certificate.rs`,
-  `vote_state.rs`) — that a QC genuinely requires 2f+1 distinct validator signatures (the assumption
-  invariant #1 leans on).
+- **BLS/certificate crypto** (`monad-crypto/certificate_signature.rs`) — that an aggregate signature
+  genuinely proves the claimed validators signed (the soundness under the quorum count).
 - **Pacemaker / view-change** (`pacemaker.rs`) — *liveness* (progress under partial synchrony);
   orthogonal to the safety rules above.
 - **Leader election** (`leader_election.rs`), **equivocation detection/slashing**, and the **crypto**
