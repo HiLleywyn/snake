@@ -58,12 +58,29 @@ are scalar round comparisons). **enforced.**
 
 ## What this audit did NOT cover (coverage honesty)
 
-The safety module is the per-round voting *discipline*; full BFT safety + liveness additionally rests
-on pieces I read only at their interface:
-- **Cross-round lock safety** — that a validator only votes for a proposal which **extends a
-  sufficiently-high QC** (the HotStuff "locked QC" rule preventing a certified block from being
-  reverted by a later conflicting one). This is enforced at **proposal validation** time, not in
-  `safety.rs`; not traced here. *This is the most important remaining safety surface.*
+### Pass 2 — cross-round lock safety (OPENED): coherency gate + QC-of-QC commit
+
+The other half of safety — that a *committed* block can't be reverted by a later conflicting one — is
+enforced not in `safety.rs` but in the vote-gating sequence (`monad-consensus-state/src/lib.rs`) plus
+`monad-blocktree`. Opened, and it is sound HotStuff-family safety:
+- **Coherency gate (the lock rule).** Before `is_safe_to_vote`, the proposal must pass
+  `pending_block_tree.is_coherent(block_id)` (`consensus-state:1676`). A blocktree entry "is coherent
+  if there is a path to root from the entry" (`blocktree/tree.rs:239`) — it chains back through
+  ancestors to the **committed root**. So a validator **won't vote for a block on a branch that forks
+  off a pre-committed block** — the structural equivalent of HotStuff's locked-QC rule.
+- **Commit rule.** `blocktree.rs:142`: *"the commit rule stating a QC-of-QC commits the block"* — the
+  **two-chain** (Jolteon / HotStuff-2) rule: a block commits when a QC certifies a QC on it.
+- **Root = committed = immutable.** The tree roots at the last committed block (`:55`,`:117`); `prune`
+  (`:132-145`) advances the root to the newly-committed block and drops non-descendants — **finalized
+  blocks leave the mutable tree** and cannot be reorged.
+
+**Together = full BFT safety:** *within* a round, one-vote-per-round + quorum intersection ⇒ no two
+conflicting QCs; *across* rounds, two-chain commit + coherency ⇒ a committed block can't be reverted
+(honest validators won't vote a conflicting non-coherent branch, so no competing QC forms after
+commit). NE/NEC adds tail-fork resistance on top. **enforced.**
+
+### Remaining (read only at interface)
+Full BFT safety + liveness additionally rests on:
 - **QC/TC formation & quorum intersection** (`monad-consensus-types/quorum_certificate.rs`,
   `vote_state.rs`) — that a QC genuinely requires 2f+1 distinct validator signatures (the assumption
   invariant #1 leans on).
