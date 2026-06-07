@@ -149,3 +149,39 @@ feature — the oracle (op-supervisor) checks out on its core message-validation
 freshest EL/L2 code is clean on determinism and cross-chain existence/causality; residuals are the
 shared encoder byte-agreement (R2), the log-DB + reorg/finalization progression (R4) — both
 named, neither a finding.
+
+---
+
+## R5. Optimism op-supervisor — cross-safe progression & reorg invalidation (the R4 remainder, opened — clean)
+**Target:** `op-supervisor/supervisor/backend/cross/{safe_update,safe_frontier}.go`. The deepest interop
+residual: can an executing block reach a safety level (cross-safe / finalized) while its **source
+message gets reorged out**? Opened the progression logic, and it's **soundly gated**:
+- **Cross-safe promotion requires all dependencies cross-safe.** `scopedCrossSafeUpdate` builds the
+  candidate's hazard set, then runs **`HazardSafeFrontierChecks`** (`safe_update.go:14`) + `HazardCycleChecks`
+  + a read-consistency abort **before** `UpdateCrossSafe` (`:26`). The frontier check
+  (`safe_frontier.go`) iterates every hazard dependency and requires it to be **cross-derived (cross-safe)
+  within the current L1 scope** — out-of-scope → `ErrOutOfScope` (bump scope, *don't* promote).
+- **Reorg detection = `ErrConflict`.** If a dependency block at a given number has a **different ID than
+  expected** (i.e. the source was reorged), `HazardSafeFrontierChecks` returns **`ErrConflict`**
+  (`safe_frontier.go:14-16`) — so a block depending on a reorged-out source **cannot be promoted**.
+- **Invalidation cascade.** On any such failure, `CrossSafeUpdate` calls **`InvalidateLocalSafe`**
+  (`safe_update.go:61`) — the candidate (and its replacement chain) is invalidated and re-derived. So a
+  reorged source cascades to invalidate the dependent executing block; it cannot remain cross-safe.
+**Result: clean** — the cross-safe frontier advances *only* when every source-message dependency is
+itself cross-safe and same-ID (non-reorged); a reorged dependency yields `ErrConflict` → invalidation
+cascade. The interop safety progression correctly prevents "executed a message whose source later
+vanished." **Remaining residual (deepest):** the **log-DB reorg detection** itself (how the supervisor
+marks a source block invalid / the `reads.Handle` consistency + DB rewind) and the cross-**unsafe**
+analog (`unsafe_update.go`) — the substrate beneath the progression, not opened. **No finding.**
+
+### Interop deep-dive — full chain traced (R3→R4→R5), all clean
+The freshest, most-complex, most-value-critical cross-chain feature in the entire corpus, traced
+end-to-end across three layers: **R3** on-chain `CrossL2Inbox` (minimal warmth hook, delegates) → **R4**
+supervisor message validation (checksum-matched existence + no-future-execution timestamp invariant +
+cycle handling) → **R5** cross-safe progression (dependencies must be cross-safe + non-reorged;
+`ErrConflict` + invalidation cascade on reorg). All clean. The system is soundly designed: the on-chain
+gate is cheap, the off-chain enforcer checks existence/causality, and the safety progression refuses to
+advance (and cascades invalidation) when a dependency is non-cross-safe or reorged. Residuals are the
+substrate: shared-encoder byte-agreement (R2), log-DB reorg detection + cross-unsafe analog (R5) — all
+named, none a finding. This is "name the oracle, then open it, then open *its* substrate" — three levels
+deep on a live feature, and it holds.
