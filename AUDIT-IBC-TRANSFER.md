@@ -108,3 +108,29 @@ which I record as the corpus's **fourth settlement-seam trust model**, distinct 
 fraud-proof, and multisig. No untrusted-input→value path found; nothing to disclose. The named
 irreducible trust is each counterparty chain's consensus honesty (and the CometBFT commit-verification
 soundness underneath it). Next pull: ICS-23 membership-proof internals and ics20-v2/PFM.
+
+---
+
+# Addendum — Pass 2: the ICS-23 membership proof opened (real chained Merkle verification)
+
+Closing the deferred "ICS-23 membership-proof internals" residual. `VerifyMembership`
+(`modules/core/23-commitment/types/merkle.go:85`) ultimately calls `verifyChainedMembershipProof`
+(`:148-189`), which is a genuine chained Merkle verification against the trusted root — not a stub:
+- For each proof (lowest subtree → highest), `subroot = proofs[i].Calculate()` recomputes the subtree
+  root, then **`ep.Verify(specs[i], subroot, key, value)`** (`:176`) runs the `cosmos/ics23`
+  *existence-proof* verification: it re-hashes the leaf per the `ProofSpec` (the SDK spec — IAVL
+  leaf/inner ops, hash fn, length prefix) and walks the inner nodes, confirming the `(key, value)`
+  commits to `subroot`. `GetExist() == nil → ErrInvalidProof` (`:170-173`) so only existence proofs
+  are accepted for membership.
+- It **chains the subtrees**: `value = subroot` (`:180`) — each subtree's computed root must be the
+  value proven in the next-higher subtree (the IAVL store → multistore chain in Cosmos SDK).
+- Finally **`bytes.Equal(root, subroot)` or `ErrInvalidProof`** (`:184-186`) — the top of the chain
+  must equal the trusted root (the light-client `ConsensusState` root from `AUDIT-IBC-TRANSFER` Pass 1).
+
+So a received packet's commitment is bound to the trusted root by a real, spec-driven, chained Merkle
+proof: a forged or mismatched proof fails to reconstruct the root and is rejected. **The
+membership-proof machinery is verified clean.** The residual is therefore *only* what Pass 1 already
+named — that the trusted root itself was honestly attested (>2/3 of the counterparty's validators) and
+the CometBFT commit-verification is sound. The proof *binding* (packet → root) is no longer a residual;
+the residual is purely the *root's provenance* (counterparty consensus), which is the irreducible
+light-client trust by design. **No finding.**

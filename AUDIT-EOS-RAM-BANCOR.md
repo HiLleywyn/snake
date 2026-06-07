@@ -96,3 +96,37 @@ irreducible assumption. No untrusted-input→value path in the audited curve; no
 the corpus's cautionary determinism-spine entry: a determinism hazard delegated to (and contained by)
 the runtime rather than avoided in code. Next pulls: the `spring` runtime's softfloat enforcement and
 the `eosio.token` base floor.
+
+---
+
+# Addendum — the deterministic-float residual is CLOSED (Antelope eos-vm SoftFloat, verified)
+
+The key residual above — "the RAM market's float math is safe *only if* the runtime guarantees
+deterministic floating point" — is now **verified**, not assumed. I read the Antelope WASM VM
+(`AntelopeIO/eos-vm`, the `libraries/eos-vm` submodule of `AntelopeIO/spring`):
+
+- **Every WASM float op is computed in Berkeley SoftFloat.** `include/eosio/vm/softfloat.hpp` defines
+  the float primitives as software IEEE-754: e.g. `_eosio_f64_add(a,b) = from_softfloat64(::f64_add(
+  to_softfloat64(a), to_softfloat64(b)))` (`:193-194`), and likewise `_eosio_f32_add` (`:20-21`),
+  `_eosio_f64_mul`, `_eosio_f64_div`, sqrt, comparisons, and the rounding helpers. SoftFloat computes
+  IEEE-754 in software with fixed rounding, so it is **bit-identical on every platform** (no hardware
+  FPU variance).
+- **The interpreter dispatches float opcodes to SoftFloat.** `interpret_visitor.hpp`: the `f64_add_t`
+  handler calls `_eosio_f64_add` (`:950-955`), `f64_mul_t → _eosio_f64_mul` (`:968-973`),
+  `f64_div_t → _eosio_f64_div` (`:977-982`), `f32_add_t → _eosio_f32_add` (`:830-835`), etc. — the
+  WASM float instructions never touch the native FPU.
+- **The JIT path uses it too.** `x86_64.hpp` (the x86-64 backend) also references the softfloat
+  functions, so the compiled path matches the interpreter rather than emitting native float ops.
+
+So both execution backends compute `f64.add`/`mul`/`div`/`pow`-via-libm in deterministic SoftFloat,
+and **all honest nodes get bit-identical results** for the RAM Bancor curve's `double`/`std::pow`
+math (the system contract is WASM; its float ops are wasm float instructions → SoftFloat). The hazard
+is genuinely *contained at the runtime*, exactly as the main audit conjectured — now confirmed in code.
+
+**Updated verdict:** the EOS RAM market is **clean, unconditionally** (the prior "conditional on the
+runtime" caveat is discharged): the bonding-curve conservation holds and its floating-point math is
+cross-node deterministic because the Antelope VM mandates SoftFloat for all float opcodes in both the
+interpreter and JIT. This makes EOS the corpus's verified example of **"a determinism hazard safely
+delegated to and contained by the runtime"** — the constructive counterpart to the MemeCore finding
+(uncontained nondeterminism). Remaining (true) residual: the `eosio.token` base floor and the
+buy/sell-ram fee plumbing, not the float determinism.
