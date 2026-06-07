@@ -81,6 +81,33 @@ is closed/off-chain. **named, irreducible from on-chain; unverifiable here.**
   contracts.
 - The `hp-verification-node-plugin` and `chains` metadata repos — not conservation-bearing.
 
+## Addendum — Pass 2: `eas-contracts` is vanilla upstream EAS (trust is in the attester, not the code)
+
+Followed the lead that the on-chain proof-of-humanity lives in `eas-contracts`. It doesn't —
+because `humanity-org/eas-contracts` is a **near-verbatim fork of the upstream Ethereum Attestation
+Service**:
+- README is upstream's verbatim; the standard EAS contract set (`EAS.sol`, `SchemaRegistry.sol`,
+  `EIP712Proxy`, `EIP1271Verifier`, `SchemaResolver`, `Indexer`); the **only** change is a deploy
+  script (`scripts/deploy.ts`) + deployment artifacts (base-goerli, polygon). No
+  `humanity`/`human`/`palm`/`sybil` references; **no custom proof-of-humanity resolver.**
+
+So there is nothing to audit in the contracts — it is unmodified, already-audited upstream
+infrastructure. The methodology's correct move is to **not** re-audit it and instead name where the
+proof-of-humanity trust *actually* sits, because EAS is **permissionless**: anyone can attest to
+anything, and the *meaning* of a "this is a verified human" attestation comes entirely from **which
+attester key issued it**. Therefore Humanity's proof-of-humanity reduces to:
+
+1. **The attester authority** — the key(s) Humanity uses to issue "human" credential attestations.
+   Whoever controls that key can mint humanity for any address; revoking/rotating it is the trust
+   root. *Off-chain-controlled; not in these contracts.*
+2. **The off-chain biometric verification** (palm scan → decision to issue the attestation) behind
+   that key. *Off-chain; not auditable here.*
+
+**Verdict:** vanilla EAS (no fork delta to review); the proof-of-humanity trust is an **attester-key
++ off-chain-verification** 6b seam, identical in shape to the airdrop's off-chain gating above. The
+contracts give you a generic, sound attestation rail; the sybil-resistance guarantee is entirely a
+function of the issuing authority, which lives off-chain.
+
 ## Nothing routed privately
 
 No untrusted-input→value defect found. The $H token and the airdrop's on-chain part are simple,
