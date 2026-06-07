@@ -83,13 +83,42 @@ predecessor touched an account in a way that doesn't actually invalidate this tx
 re-basing a balance/nonce delta onto the new base).
 
 **This is the single piece the whole no-lost-update guarantee hinges on** — the Monad analog of Sui's
-bytecode verifier. If `try_fix_account_mismatch` ever "fixes" a mismatch that *did* invalidate a real
-read dependency, a stale read would be committed → a lost update → a conservation break that the ordered
-commit would not catch. The conservative fallback (return `false` → re-execute) is safe; the risk is
-entirely in the *relaxed* path being too permissive. **I verified the OCC skeleton is correct and the
-read-set validation is sound; the soundness of `try_fix_account_mismatch` (the relaxed reconciliation)
-is the deepest, most bug-prone piece and the natural next layer to open** — exactly where a
-parallel-EVM bug, if one exists, would most likely live. **named — load-bearing, not opened in depth.**
+bytecode verifier. So I opened it (`state3/state.cpp`), and it is **soundly designed**, not hand-wavy:
+
+- `try_fix_account_mismatch` returns "mergeable" **only if every field except balance is identical** —
+  `code_hash`, `incarnation`, `nonce` mismatches each `return false` (conflict → re-execute). Only a
+  *balance*-only difference is ever a candidate for relaxation.
+- Even then it relaxes **only if** relaxed validation is enabled, the account is **not** flagged
+  `validate_exact_balance`, and the committed `actual->balance >= min_balance()` (the tx's recorded
+  lower bound). It then **re-bases the tx's balance delta** onto the committed balance with checked
+  arithmetic (`MONAD_ASSERT(recent->balance >= original->balance - actual->balance)`).
+- The constraints are **recorded by centralized instrumentation in the State's balance accessors**, so
+  there is no per-opcode instrumentation to forget:
+  - **`State::get_balance` → `set_validate_exact_balance()`** (`state.cpp:227`): *any explicit balance
+    read* (BALANCE/SELFBALANCE, internal observation) disables relaxed merge for that account. This is
+    the decisive line — a tx that ever *observed* a balance cannot be relaxed-merged against a stale
+    one; it must re-execute on any change.
+  - **debits → `record_balance_constraint_for_debit`** (`subtract_from_balance`; CALL-value in
+    `evm.cpp:54`): a *successful* debit records the tightest `min_balance` that preserves its success
+    (so it tolerates the predecessor raising or lowering the balance, as long as the debit still
+    clears); an *insufficient* debit instead demands exact-balance (the failure outcome depends on the
+    precise value).
+
+**Net: relaxed merge applies only to an account whose balance was *modified but never read* by the
+tx — precisely the case where concurrent balance changes commute and relaxation is provably safe.** The
+load-bearing residual is therefore **confirmed sound by centralized design**, not just assumed. The
+residual narrows to one verifier-style question (the Monad analog of "does any bytecode bypass the
+verifier"): **does every balance access in the EVM interpreter/precompiles route through these
+instrumented `State` accessors, with no path reading/mutating `account.balance` directly?**
+
+**Bypass check — clean.** Grepping `.balance`/`->balance` across `vm/`, `evm.cpp`, and precompiles
+turned up only (a) test/fuzz code (`fuzzing/generator` `balancePct`) and (b) the JIT emitting the
+**BALANCE opcode handler** (`vm/compiler/ir/x86.cpp`), which itself routes through `State::get_balance`.
+**No code reads or mutates `account.balance` directly around the instrumented accessors.** So balance
+access is genuinely centralized through `State`, and the relaxed-merge constraints are recorded on every
+path by construction. The true bottom is now just the arithmetic asserts (which halt on violation, not
+diverge) and "this C++ is bug-free" — the floor under any audit. **The load-bearing residual is opened
+and holds: Monad's relaxed-parallel-merge is sound.**
 
 ---
 
