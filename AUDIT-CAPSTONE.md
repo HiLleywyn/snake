@@ -216,6 +216,29 @@ leave *equivalence* residuals (testable), validity/crypto oracles leave *soundne
 (assumption-bound). "Name the oracle" has a follow-through: *open* it, and you can usually verify the
 gate's internal machinery and shrink the residual to a single, well-typed trust.
 
+### (i) Consensus-family spectrum — "conservation" at the agreement layer
+The corpus now spans the major consensus families. The agreement-layer analog of conservation is
+**no forged/conflicting finalization**: an adversary can't manufacture agreement (block-production
+rights or finality) beyond its resource share. How each family enforces it, and the trust bound:
+- **BFT quorum (MonadBFT** — HotStuff/Jolteon): safety = no two conflicting QCs; monotonic one-vote-per-
+  round + **>2/3 stake quorum intersection**, `assert!`-halt on violation. Bound: <1/3 Byzantine stake.
+- **VRF-PoS leader lottery (Cardano Ouroboros Praos):** private, unbiasable, **stake-proportional**
+  leadership (`Hash(slot‖epochNonce)` VRF, registered-key binding, `φ(σ)` threshold). Bound: honest
+  >1/2 stake + security parameter k. *(Pass 2, this audit.)*
+- **BlockDAG total-order (Kaspa GHOSTDAG):** embrace parallel blocks, then **linearize by
+  `(blue_work, hash)`** into one canonical order. Bound: honest-majority hashrate (PoW under a DAG).
+- **PoW Nakamoto (Bitcoin/Litecoin):** heaviest-chain; leadership ∝ hashrate. Bound: honest >1/2 hashrate.
+- **hashgraph aBFT (Hedera):** gossip-about-gossip + virtual voting (named, not deeply opened). Bound:
+  <1/3 Byzantine stake, asynchronous.
+- **Light-client-relayed (IBC/Tendermint):** a chain trusts another's finality via verified
+  signatures (§4f). Bound: >2/3 of the *counterparty's* validators.
+Two cross-cutting invariants recur regardless of family: **(1) a canonical total order** (BFT round
+numbers, GHOSTDAG blue_work+hash tiebreak, OCC txn-index) — the determinism spine (§4g); and **(2) a
+resource-proportional, unforgeable right to participate** (stake quorum / VRF-with-registered-key /
+hashpower) — the Sybil bound. The lone finding (MemeCore) is precisely a violation of (1) at the
+execution-adjacent layer. Per §4h, every family's residual is the **soundness of its core primitive**
+(BLS aggregation, VRF, hash power, signature scheme) — a cryptographic-soundness residual.
+
 ### (e) Proof-of-personhood, compared
 **Humanity** keeps *all* sybil-resistance off-chain (vanilla EAS + an attester key). **World ID**
 puts *tree integrity* under ZK on-chain (insertion proofs, fresh-root checks) but still rests on an
