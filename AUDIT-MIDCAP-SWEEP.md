@@ -132,3 +132,69 @@ manufactured findings. The genuine fork-bug hunt needs a **named specific fork**
 references (Liquity-fork P/S math; lending-fork first-depositor/share-inflation; Solidly-fork gauge
 rewards; Uniswap-fork fee-on-transfer assumptions). **Any real finding → stopped-and-notified privately,
 not logged here.**
+
+---
+
+## 5. Alchemix V2 (ALCX) — self-repaying loans (a conservation model new to the corpus) (clean)
+**Target:** `alchemix-finance/v2-foundry`, `src/{AlchemistV2,TransmuterV2}.sol`. Genuinely distinct: you
+deposit yield-bearing collateral, mint alAsset debt up to an LTV, and **the collateral's yield
+automatically repays the debt** — no liquidation under normal operation. Nothing else in the corpus
+works this way.
+- **Mint is LTV-gated *after* harvesting yield** (`_mint`, `:1209-1234`): it first
+  `_preemptivelyHarvestDeposited` + `_distributeUnlockedCreditDeposited` (apply accrued yield as
+  debt-reducing credit so debt is current), then `_updateDebt(+amount)`, then **`_validate`**
+  (`:1459`): `collateralization = totalValue·SCALAR/debt; revert Undercollateralized if <
+  minimumCollateralization`. So debt is always ≥-collateralized at mint, measured post-yield. A global
+  `_mintingLimiter` rate-caps total alAsset issuance.
+- **Self-repayment = credit distribution:** harvested yield is distributed as "credit" that reduces
+  account debt (`_distributeCredit`, `:1277`) — the debt decays as yield accrues, the defining feature.
+- **The transmuter keeps alAsset backed at par (1:1):** `TransmuterV2` tracks per-account
+  `unexchangedBalance` (alAsset awaiting conversion) → `exchangedBalance` (underlying), distributing
+  repaid underlying to alAsset depositors **1:1**. So every alAsset minted corresponds to debt, and as
+  debt is repaid in underlying that underlying flows to the transmuter, making alAsset redeemable at par.
+**Conservation floor: sound** — alAsset issuance is LTV-gated + globally rate-limited; the
+self-repayment is a credit distribution against real harvested yield; the transmuter conserves alAsset↔
+underlying at 1:1 funded by repayments. **Residual:** the **yield-token value reporting**
+(`convertYieldTokensToUnderlying`) is the trusted input — if a yield strategy loses value or is
+manipulated, positions can become genuinely undercollateralized (the alAsset-depeg / external-strategy
+6b), and the transmuter relies on repayment inflow timing. **No finding.**
+
+---
+
+## 6. Reserve Protocol (RSR / RToken) — basket-backed stablecoin + staked backstop + auction recollateralization (clean)
+**Target:** `reserve-protocol/protocol`, `contracts/p1/{RToken,BasketHandler,BackingManager,StRSR}.sol`.
+Distinct: an RToken is backed by a **basket** of collateral (overcollateralized), with **StRSR** (staked
+RSR) as an insurance backstop and **Dutch-auction recollateralization** when a collateral defaults.
+- **The backing-ratio invariant.** `basketsNeeded` (D18 basket units the BackingManager must hold);
+  issue/redeem exchange at `totalSupply()/basketsNeeded`. Issuance updates `basketsNeeded` with **CEIL
+  rounding** (`basketsNeeded.muluDivu(amount, supply, CEIL)`, `:137`) — conservative (the system needs
+  *at least* that many baskets). Redemption preserves the documented invariant **`basketsNeeded' /
+  totalSupply' >= basketsNeeded / totalSupply`** (`:174`) — a redemption can never lower the backing
+  ratio for remaining holders.
+- **No preferential drain.** Standard `redeem` requires **`basketHandler.fullyCollateralized()`**
+  (`:197`); if the basket is impaired, holders must use **pro-rata `redeemCustom`**, so a fast redeemer
+  can't drain the sound collateral and leave others holding the bad — the run-resistance design.
+- **Issuance gated on basket soundness.** `issue` requires `basketHandler.isReady()` (`:120`) — can't
+  mint against a basket in default/warmup.
+- **Recollateralization + backstop.** On a collateral default the BackingManager runs auctions to
+  restore the basket and, if collateral is insufficient, **seizes StRSR (RSR stakers' capital)** — the
+  staked backstop absorbs the loss before RToken holders. Overcollateralization + insurance, in code.
+**Conservation floor: sound** — the backing ratio is non-decreasing across issue/redeem (CEIL on issue,
+ratio-preserving redeem), standard redemption is gated on full collateralization with pro-rata fallback,
+and losses hit the RSR backstop first. **Residual:** the **collateral plugins** report price /
+`refPerTok` / default status — a mis-reporting or slow-to-default plugin is the trusted input (the
+oracle/peg 6b), and the Dutch-auction price bounds are the recollateralization-efficiency surface. **No
+finding.**
+
+---
+
+### Distinct-mechanism tally (corpus value of the sweep)
+Six mid-caps, six conservation models, all clean: **Synthetix V3** (distribution-based shared credit),
+**Pendle** (yield-token split with monotonic index), **THORChain** (cross-chain CLP + solvency-halt),
+**Liquity V2** (CDP stability-pool offset, formally verified), **Alchemix** (self-repaying loans +
+1:1 transmuter), **Reserve** (basket + RSR backstop + auction recollateralization). Each adds a *new*
+conservation shape to the corpus, and each bottoms out on the same family of residuals — an external
+**oracle / price / value-reporting** input (Synthetix collateral, Pendle SY rate, THORChain Bifrost
+observation, Liquity oracle, Alchemix yield-token value, Reserve collateral plugins). The down-market
+lesson holds: established mid-caps are well-defended; the trust keeps relocating to the value-reporting
+boundary, never disappearing.
