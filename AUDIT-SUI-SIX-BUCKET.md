@@ -724,6 +724,77 @@ welds key to address.
 
 ---
 
+# Addendum — Pass 6: the MemeCore-class check (determinism + enforced-not-swallowed system calls)
+
+*Motivated by the one real finding elsewhere in the corpus (`AUDIT-MEMECORE-POSA.md` §6-B/C): a PoSA
+chain whose epoch reward system-call (a) **swallowed** the call's error (a reverting call still
+produced a "valid" block) and (b) built the validator list from a **Go map** (non-deterministic
+iteration) and passed it unsorted into the state-changing call — together a latent silent-consensus-
+split. This pass re-examines Sui's epoch-change for that exact failure class. Sui is structurally
+immune on both axes, and for an architectural reason.*
+
+### Axis A — system-call results are enforced, not swallowed (the §6-B analog)
+
+Sui's epoch transition (`execution_engine.rs::advance_epoch`) executes the whole mint→`advance_epoch`
+→destroy-rebate PT atomically and **branches on the result** (`:1322`):
+
+```rust
+let result = SPT::execute::<System>(... advance_epoch_pt ...);
+if let Err(err) = &result {
+    tracing::error!("Failed to execute advance epoch transaction. Switching to safe mode. ...");
+    temporary_store.drop_writes();                 // discard the failed partial state
+    gas_charger.reset_storage_cost_and_rebate();
+    temporary_store.advance_epoch_safe_mode(&params, protocol_config);   // defined fallback
+}
+```
+
+The opposite of MemeCore: a failing epoch call **cannot silently proceed**. On error Sui *drops the
+writes* and takes an explicit, defined **safe-mode** path (rewards parked on the `0x5` object, no
+distribution). And the branch decision is the **deterministic** Move-execution `result`, so **all
+validators take the same branch identically** → no node commits "normal epoch" while another commits
+"safe mode." (The `#[cfg(msim)] maybe_modify_result_for` at `:1319` is a **simulation-test-only**
+injection used to *exercise* safe mode, not a production path.) **enforced — failure is handled, not
+swallowed; the success/safe-mode decision is deterministic across validators.**
+
+### Axis B — no non-deterministic iteration feeds committed state (the §6-C analog)
+
+MemeCore's split risk came from `for validator := range goMap` (randomized order) flowing into a
+state-changing call. In Sui:
+- **Rust execution adapter uses ordered maps exclusively** — `execution_engine.rs` + `temporary_store.rs`:
+  **42 `BTreeMap`, 0 `HashMap`/`IndexMap`**. Modified/written objects are `BTreeMap`/`BTreeSet`
+  (sorted keys); accumulator events iterate an ordered `Vec` (`.iter().enumerate()`). Iteration order
+  is therefore identical on every validator.
+- **Move has no `HashMap`.** The validator set is `active_validators: vector<Validator>`
+  (`validator_set.move:62`) — an *ordered vector* that is part of the shared system-state object
+  (byte-identical on all validators); reward distribution iterates it by index (Pass 3). `VecMap`
+  (report records, voting powers) is insertion-ordered. **No structure whose iteration order varies
+  across nodes ever feeds the committed state root.** **enforced — deterministic by container choice.**
+
+### Why Sui is immune by construction
+
+Sui is a BFT system where **all validators must agree on transaction effects**, so deterministic
+execution is a hard requirement, not a nicety — hence ordered containers everywhere and explicit
+failure handling. MemeCore inherited a clique/parlia PoSA where each validator *produces* blocks, and
+the laxity crept into the off-Move glue (the Go reward-call construction). The general, checkable
+property the contrast yields:
+
+> **Determinism-safety for any consensus state transition = (ordered containers only, no map-iteration
+> into committed state) + (system-call results enforced, never swallowed).** Sui satisfies both;
+> MemeCore violated both in one function.
+
+One related note (the *right* direction): Sui's epoch path uses **deterministic `.expect()`/panics**
+(e.g. "System Package Publish must succeed", `:1397`) on conditions that hold identically on all
+validators — so a bad state causes a **coordinated all-validator halt** (recoverable, agreed) rather
+than a *silent divergence*. Preferring all-halt over silent-split is exactly the discipline MemeCore's
+swallowed error lacked. **noted — correct failure philosophy.**
+
+**Pass-6 verdict: Sui is structurally immune to the MemeCore failure class** — enforced (not swallowed)
+deterministic safe-mode on epoch-call failure, and deterministic iteration (BTreeMap/ordered-vector
+only) into all committed state. The itch is scratched: the bug that exists in MemeCore *cannot* take
+the same form here, by Sui's architecture.
+
+---
+
 ## Nothing routed privately
 
 No untrusted-input→unvalidated→value-moving path was found. The largest residual (the
