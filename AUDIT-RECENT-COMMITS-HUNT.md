@@ -307,3 +307,43 @@ methodology predicts (fresh + dual-representation + settlement) and failed in th
 it found the one real *code* defect (MemeCore) by hunting deltas, and the recent-commits angle
 independently surfaced the one real *recent* defect class (Sui AB) by hunting fresh dual-representation
 settlement code — both predicted, neither a bare "safe."
+
+---
+
+## R9. Aptos (APT) — Move-compiler const-fold arithmetic bugs (real, recently-fixed; equivalence class) [non-EVM]
+**Target:** `aptos-labs/aptos-core` HEAD `226bc17e`, recent fixes `6b4d87cb` (unsigned-shift overflow
+const-fold), `edd9df0f` (signed-modulo const-fold), `9042cc22`/`114c7cad` (Move-prover div/mod for
+signed ints). Third non-EVM team. The freshest *correctness* fixes here are in the **Move language
+toolchain** — a different layer than consensus/conservation, and they're a clean instance of the
+**equivalence residual** class (§4h).
+- **The bug (real, fixed).** The compiler's **constant-folder / simplifier** mis-computed
+  **unsigned-shift overflow wrap** for constant expressions — the regression test (`6b4d87cb`,
+  `tests/simplifier/shift_overflow_wrap.move`) pins cases like `u128_max << 1`, `2u128 << 127 == 0`,
+  `124u8 << 5 == 128u8`, `7u8 << 7 == 128u8`. I.e. the **compile-time folded value could diverge from
+  the runtime VM's wrap semantics**, so a contract using a constant shift-overflow expression could be
+  mis-compiled. Sibling fixes do the same for **signed modulo/div** const-folding and the Move prover.
+- **The class: compile-time ≡ runtime equivalence.** This is the same shape as the rollup
+  encoder-agreement residuals (alloy ≡ geth, R2; BAL cross-client) — **two evaluations of the same
+  expression must agree** (here: the const-folder vs the VM). The fix restores that equivalence.
+- **Failure shape (important).** It is **deterministic** — a mis-folded constant produces a
+  *consistently wrong* result on every node (everyone runs the same bytecode), so **no consensus split**;
+  and it only bites contracts that *use* constant shift/modulo-overflow expressions. So it's a
+  **source-level correctness** bug (a contract does the wrong arithmetic), not a conservation breach or
+  a chain split. Lower-severity than R8, but a genuine recent toolchain defect, already fixed.
+**Result: already remediated** — nothing to disclose. A clean third-non-EVM-team data point: the
+freshest real bug here is a **compiler equivalence** bug (compile-time ≡ runtime), deterministic and
+contract-scoped, fixed by aligning the folder to VM wrap semantics.
+
+### Three non-EVM teams, two real (pre-fixed) recent bugs — the two classes
+- **Solana (R6/R7):** capitalization + Alpenglow consensus — **clean** (recompute conservation +
+  vote-dedup/exact-rational thresholds).
+- **Sui (R8):** address-balance gas-underflow at settlement — **real bug**, *dual-representation
+  conservation* class (Bucket 3), **liveness-shaped** (checked arithmetic → abort), emergency-fixed.
+- **Aptos (R9):** const-fold shift/modulo overflow — **real bug**, *compile-time≡runtime equivalence*
+  class, **deterministic/correctness-shaped**, fixed.
+The two recent real bugs are exactly the two predicted frontier classes: **dual-representation
+settlement** (value/liveness) and **cross-implementation equivalence** (compile≡runtime). Neither is a
+consensus-divergence or value-mint, because both chains' substrates (checked arithmetic, determinism)
+push the failure to liveness/correctness — the capstone "residual shape follows substrate" law, holding
+across three independent non-EVM teams. **MemeCore remains the only value/consensus-shaped code finding**
+— and it's the one chain whose imperative substrate didn't force-fail safe.
