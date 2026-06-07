@@ -405,3 +405,15 @@ surfaces I then checked were clean (Aptos Coin↔FA R10; Sui Mysticeti determini
 classes are *frontiers*, not universal flaws. Across every chain the failure shape obeyed the substrate
 law (checked/deterministic → fail-safe as liveness/correctness), and **MemeCore stays the only
 value/consensus-shaped code finding** — the lone imperative-substrate case that didn't force-fail safe.
+
+---
+
+## R12. Sui — Mysticeti leader-commit safety (R11 residual, opened — clean) [non-EVM]
+**Target:** `MystenLabs/sui`, `consensus/core/src/base_committer.rs`. The R11 residual: does the commit
+rule guarantee no two conflicting leaders committed? `try_direct_decide` (`:86`) **Skips** on `2f+1`
+non-votes (blame), **Commits** on `2f+1` stake-weighted support, else Undecided; the support is tallied
+by `StakeAggregator::<QuorumThreshold>` whose `add(author, committee)` **dedups by author** (`:239,265`)
+— each validator's stake counted once. `try_indirect_decide`/`decide_leader_from_anchor` is the
+HotStuff-family certified-anchor indirect commit. So a leader commits only with a `2f+1` (author-deduped)
+quorum → by quorum intersection no two conflicting leaders commit. **Clean** — same BFT-safety shape as
+MonadBFT/Alpenglow. Residual: `QuorumThreshold` exactness + the BLS cert crypto (deeper). **No finding.**
