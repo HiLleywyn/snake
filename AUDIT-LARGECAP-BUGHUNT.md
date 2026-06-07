@@ -179,3 +179,36 @@ The public `mantlenetworkio/mantle` is the **pre-bedrock l2geth** stack (v0.4.3)
 op-geth fork (MNT as gas token, EigenDA), which is a separate repo not pulled here. Auditing the dead
 l2geth has no live value. **Not audited** (would need the current op-geth fork to check the MNT
 gas-token fee path, analogous to Celo L4). Noted for honesty, not a result.
+
+---
+
+## L7. Berachain (BERA) — BeaconKit deposit/staking state-transition (clean)
+**Target:** `berachain/beacon-kit` HEAD `b0aa196`, `state-transition/core/validation_deposits.go`. Custom
+consensus delta (CometBFT + EL via engine API); the conservation-critical seam is EL-deposit-contract →
+beacon validator stake. Hunted the eth2-class deposit bugs (double-process / skip / reorder / count
+mismatch). **Result: clean — carefully validated.**
+- **Strict contiguous ordering.** Genesis (`:53-58`) and live (`:129-136`) both require
+  `deposit.GetIndex() == depositIndex + i` → `ErrDepositIndexOutOfOrder` otherwise. No gaps, no
+  reordering.
+- **Count match.** `len(localDeposits) == depositIndex + len(blkDeposits)` or `ErrDepositsLengthMismatch`
+  (`:119-125`) — a block can't add/omit deposits vs the local (EL-mirrored) view.
+- **Content match against local store + root.** Each block deposit must `Equals` the local store's
+  deposit at that index (`ErrDepositMismatch`, `:138-139`), and the local deposit Merkle root is
+  cross-checked against `blkDepositRoot` — so a forged deposit can't be slipped in. The local store
+  mirrors the EL `BeaconDeposit` contract.
+- Per-block deposit cap (`maxDepositsPerBlock`) bounds processing; validator-set cap enforced at genesis.
+**Result: clean** — deposits are credited to validator stake in strict order, count/content/root-validated
+against the EL contract; no double-credit, skip, or reorder. **Residual:** the EL↔beacon engine-API
+boundary and the BLS/withdrawal-credential crypto (deposit signature verification) — read at interface;
+the deposit *accounting* is robust. **No finding.**
+
+### Status (6 large-cap deltas hunted, all clean; 2 unavailable)
+Hunted: **BSC, Polygon, Sonic, Celo, Cronos, Berachain** — parlia fast-finality, bor state-sync,
+Lachesis epoch-seal, ERC-20 fee-currency, EVM↔bank precompile, and beacon deposit/staking. All **clean**
+on the MemeCore classes and on conservation. **Unavailable:** Injective (private repo), Mantle (public
+repo is the deprecated pre-bedrock l2geth). The verdict is now firm across 6 structurally-distinct
+top-cap consensus/execution deltas: well-resourced teams sort/canonicalize before consensus-critical use,
+validate ordering with strict indices, match against a local/EL view, and propagate errors. **MemeCore
+remains the lone outlier** — the only delta in the entire corpus that fed an unsorted map into a
+consensus-critical system call with a swallowed error. The trust in every clean case sits at governance
+(allowlists/upgrade authority) and oracle/cross-layer inputs, not at exploitable code.
