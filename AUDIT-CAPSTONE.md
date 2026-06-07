@@ -195,6 +195,27 @@ mandates deterministic floating point (SoftFloat). The guarantee lives a layer b
 the floor is "trust the runtime's float determinism." The closest non-defective neighbor of the
 MemeCore finding — same hazard, contained one level down instead of leaking up.
 
+### (h) Opening the oracles — the residuals decomposition (residuals pass)
+Law 6 says "name the oracle." A dedicated pass *opened* the named oracles
+(`AUDIT-ROLLUP-ORACLES-RESIDUALS.md`, plus addenda to EOS/IBC/Filecoin/Monero). Every one decomposes
+identically: a **verifiable on-chain enforcement half** (clean in *all* cases) + an **irreducible
+off-chain semantics-binding half** — and the *kind* of remaining residual is one of two:
+- **Equivalence residual** (reducible by testing): Optimism's `step()` is a **Merkle-authenticated**
+  MIPS emulator (memory can't be faked) → residual = on-chain-vs-Cannon-Go emulator equivalence, a
+  diff-testable 6a.
+- **Cryptographic-soundness residual** (irreducible under hardness assumptions): zkSync's verifier does
+  a **real BN254 pairing** (reverts on failure) → residual = circuit/VK + trusted setup; Filecoin's
+  miner actor gates on a **non-grindable beacon-derived challenge** bound to the sealed CIDs →
+  residual = `verify_post` SNARK + PoRep construction; Monero → range-proof + DL soundness.
+- **Fully closed (no residual):** EOS's "trust the runtime's float determinism" was *discharged* by
+  reading the VM — every WASM float opcode dispatches to Berkeley SoftFloat in both interpreter and
+  JIT, so determinism is verifiable code, not an assumption.
+The pattern: **enforcement is always auditable (and was clean); only the *meaning* of the accepted
+input is irreducible**, and its residual-kind tracks the §4f settlement spectrum — fraud-proof oracles
+leave *equivalence* residuals (testable), validity/crypto oracles leave *soundness* residuals
+(assumption-bound). "Name the oracle" has a follow-through: *open* it, and you can usually verify the
+gate's internal machinery and shrink the residual to a single, well-typed trust.
+
 ### (e) Proof-of-personhood, compared
 **Humanity** keeps *all* sybil-resistance off-chain (vanilla EAS + an attester key). **World ID**
 puts *tree integrity* under ZK on-chain (insertion proofs, fresh-root checks) but still rests on an
