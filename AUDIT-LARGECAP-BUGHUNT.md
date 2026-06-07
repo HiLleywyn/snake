@@ -45,3 +45,39 @@ map-derived validator list and verifies/propagates, MemeCore does neither. The c
 **Residual:** the rest of parlia (vote/BLS aggregation in `votepool`, snapshot/validator-set transition
 at epoch, the stakehub/feynman staking delta) — large surfaces, partially read; the fast-finality reward
 + system-call path is the MemeCore-class core and it's clean. **No finding.**
+
+---
+
+## L2. Polygon (POL/MATIC) — bor consensus delta: state-sync + producer selection (clean)
+**Target:** `maticnetwork/bor` HEAD `706b800`, `consensus/bor/bor.go`. Bor's custom delta over geth is
+the **heimdall→bor state-sync** (a consensus-critical system call importing off-chain events) and the
+span/producer selection — both prime MemeCore-class surfaces. Hunted classes B + C.
+- **Class C (determinism) — clean.** Validator sets and selected producers are consistently
+  **`sort.Sort(valset.ValidatorsByAddress(...))`** before use (`:650,677,842,1062`), so the producer
+  ordering is canonical. The **state-sync** is applied in **strict sequential ID order**:
+  `CommitStates` (`:1758`) sets `from = lastStateID+1` (read from on-chain state), and
+  `validateEventRecord` (`:1892`) requires **`lastStateID+1 == eventRecord.ID`** (+ chainID + time
+  bound); on any invalid/out-of-order event the loop **`break`s** (`:1860`), so only a strictly
+  contiguous, validated prefix of events is ever applied — deterministic across nodes, no gaps, no
+  reordering.
+- **Class B (swallowed error) — clean.** The state-sync system call propagates: `gasUsed, err =
+  CommitState(...); if err != nil { return nil, err }` (`:1875-1878`); `LastStateId` errors propagate
+  (`:34,44`). No swallow.
+- Per-block state-sync gas is bounded (`totalGas`), and `eventRecord.ID <= lastStateID` is skipped
+  (idempotent replay guard).
+**Result: clean** on the MemeCore classes. The bor↔heimdall boundary is the **cross-layer seam**
+(bor trusts heimdall to supply correct, ordered state-sync events and the validator spans) — the
+irreducible residual, same shape as the other settlement seams; but bor's *application* of heimdall
+data is deterministic, strictly-ordered, validated, gas-bounded, and error-propagating. **No finding.**
+
+---
+
+### Large-cap delta-hunt status (2 of the biggest geth forks, both clean)
+Applied the proven MemeCore lens (custom-consensus delta + the B/C failure classes) to the two largest
+geth-fork large caps — **BSC** (parlia + fast-finality) and **Polygon** (bor state-sync + producer
+selection). Both **clean**, and both implement the exact patterns MemeCore got wrong **correctly**
+(sort the map-derived list; validate/order; propagate errors; verify system-tx replay). The honest
+pattern: **well-resourced large-cap teams get the consensus delta right** — MemeCore is the exception
+(a smaller, less-reviewed parlia descendant), which is precisely why it's the corpus's one finding. The
+remaining large-cap delta surfaces (opBNB/Mantle op-stack deposit/derivation, Cronos, Sonic/Lachesis,
+Gnosis posdao) are the next candidates, but the EV is declining: the failure class is rare at this tier.
