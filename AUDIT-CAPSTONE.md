@@ -1,12 +1,12 @@
 # Trust-Cartography Capstone — Findings Across the Whole Corpus
 
 *The wrap-up. One reusable lens — six buckets + three coordinates (equivalence / conservation
-floor / governance ceiling) — applied to ~47 systems across every major execution paradigm. This
+floor / governance ceiling) — applied to ~48 systems across every major execution paradigm. This
 records what was found, the comparative spectrums that emerged, and the laws that held.*
 
 *(Updated to fold in the L1/rollup expansion sweep: Aptos, Monad + MonadBFT, Sei, Berachain, NEAR,
 Stellar, Cardano, XRPL, TON, Osmosis, TradePort, Avalanche, Algorand, Hyperliquid, Polkadot, zkSync,
-Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa, Filecoin, Stacks — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
+Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa, Filecoin, Stacks, Tezos — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
 
 ---
 
@@ -77,6 +77,7 @@ finding the real bug where one existed, and naming the trust precisely where non
 | **Kaspa** | BlockDAG (GHOSTDAG) | UTXO `out ≤ in` | blue/red coloring feeding blue_work | clean; DAG linearized deterministically |
 | **Filecoin** | storage-collateral | `balance ≥ locked+precommit+pledge`; capped baseline mint | PoRep/PoSt soundness (6b); FVM transfer (ref-fvm) | clean; collateral-backed + capped issuance |
 | **Stacks** | Clarity (caller-scoped) | **post-conditions**: caller-declared asset bounds, Deny catch-all | `AssetMap` recorder completeness; mode-dependence | clean; novel *caller* conservation |
+| **Tezos** | typed source/sink | supply moves only via typed infinite source/sink; `transfer_n` Σin=Σout; receipts exposed | Michelson VM; voting quorum machine | clean; self-amendment governance endpoint |
 
 Across the expansion: **no new findings** — every target resolved to a sound conservation floor + a
 named residual, exactly as the original 25 did. MemeCore remains the lone exploitable-class finding.
@@ -126,7 +127,10 @@ expansion:* the type-system rung now has two strategies — Move **forbids** the
 → **World ID** (owner can swap the verifier/upgrade — ZK conditional on owner) → **fetchd** (admin
 *bounded*: bridge can mint, cannot seize — `BurnFrom`/`ForceTransfer` deliberately disabled) →
 **DeXe** (no admin key; every privileged action is proposal-gated via `onlyThis` — trust root is the
-vote). *Same coordinate, opposite poles.*
+vote) → **Tezos** (the *self-amendment endpoint*: not just privileged actions but the **entire
+protocol, voting rules included, is replaceable by stakeholder supermajority vote** — no fixed admin,
+no off-chain upgrade key). *Same coordinate, opposite poles* — and Tezos is the far end of the
+"trust the vote" pole, where the vote can rewrite the chain itself.
 
 ### (d) Auditability floor — "open source" is not one thing
 full-source-and-running (Sui, Drift, marginfi, Marinade, DAMM v2, Civic, MemeCore, Canton, fetchd,
