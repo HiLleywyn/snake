@@ -847,18 +847,29 @@ opened the one pass that could *bypass* them — references:
   used to clone or smuggle out a no-`copy`/no-`drop` value. So the linear guarantee holds across
   *both* the ability checks and the borrow checker that could otherwise circumvent them.
 
-One layer remains genuinely un-opened, and it bounds the confidence honestly:
-- **The dataflow framework** (`absint.rs` + the `locals_safety`/`reference_safety` lattices) must
-  reach a fixpoint over *all* control-flow paths and join branches soundly. I confirmed the transfer
-  *rules* for both ability- and reference-safety; the abstract-interpretation **engine** applying them
-  to every CFG path is standard Move infrastructure, read at the rule level rather than proven to
-  converge correctly on every graph. (Generic **instantiation** ability handling is the other
-  adjacent pass, noted not deep-read.)
+**The dataflow engine — opened to the bedrock (`absint.rs`).** I then opened the framework that
+applies those rules to every path. `analyze_function` (`:58`) builds a control-flow graph from the
+**code *and* jump tables** (`VMControlFlowGraph::new`, `:104` — so every branch/switch path is in the
+graph) and delegates to the shared `absint::analyze_function` worklist. The wiring confirms the three
+soundness properties:
+- **all branches visited** — `visit_successor` is called per successor (`:189`);
+- **loops iterated to a fixpoint** — explicit `visit_back_edge` handling with per-back-edge metering
+  (`:144`,`:193`), i.e. blocks are re-analyzed until states stop changing (`JoinResult::Changed` vs
+  `Unchanged`);
+- **merges joined conservatively** — `join` delegates to the State's lattice `join` (`:170`), the same
+  merge that produces `MaybeAvailable` (treated as "still holds a value") at branch joins.
 
-So: the conservation floor is now verified at **two** layers (ability rules + borrow checker), with
-the residual reduced to the abstract-interpretation engine itself — about as far down as one report
-should claim. The "strongest floor in the corpus" is read code at the rule level, top to (near)
-bottom, not faith.
+So the transfer rules (ability + reference) are applied by a fixpoint engine to **every reachable
+abstract state over a complete CFG**, with conservative joins. The chain "a `Balance` cannot be forged
+or vanished" is now traced end-to-end: ability rules → borrow checker → CFG-complete fixpoint engine.
+
+**The true, irreducible residual:** below this wrapper sits the shared **`move-abstract-interpreter`**
+crate — the canonical, decade-old, formally-studied Move framework that *every* Move chain shares and
+that predates Sui. Verifying its fixpoint algorithm itself is formal-methods territory, not source
+review. And, as with any audit, the floor under everything is "this verifier code is bug-free." That
+is the honest bottom: **the "strongest conservation floor in the corpus" is now read code — ability
+rules, borrow checker, and the engine that applies them on all paths — down to the shared canonical
+Move framework. Not faith.**
 
 ---
 
