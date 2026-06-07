@@ -417,3 +417,28 @@ by `StakeAggregator::<QuorumThreshold>` whose `add(author, committee)` **dedups 
 HotStuff-family certified-anchor indirect commit. So a leader commits only with a `2f+1` (author-deduped)
 quorum → by quorum intersection no two conflicting leaders commit. **Clean** — same BFT-safety shape as
 MonadBFT/Alpenglow. Residual: `QuorumThreshold` exactness + the BLS cert crypto (deeper). **No finding.**
+
+---
+
+## R13. Cosmos SDK — Block-STM OCC `CancelAll` liveness fix (real, fixed; liveness-shaped) [non-EVM]
+**Target:** `cosmos/cosmos-sdk` HEAD `e57dc5e`, recent `443b17e fix(blockstm)`. Fourth non-EVM team; the
+fix is in the **OCC parallel-execution scheduler** (the Cosmos cousin of Monad/Aptos/Sei Block-STM, my
+OCC corpus). **The bug (real, fixed):** `CancelAll` only cleared a blocker tx's **ESTIMATE** mark when
+its status was `Suspended`; if the blocker was still **Executing**, its ESTIMATE stayed, so a *suspended*
+executor waiting on that ESTIMATE would **re-suspend on resume → hang** ("blocker's ESTIMATE must be
+cleared so tx2 doesn't re-suspend"). Fix: call `preCancel` (which `ClearEstimates`) **unconditionally
+before** the suspended-status check. **Failure shape: liveness** — `CancelAll` is the abort/shutdown
+(context-cancel) path, so the bug causes a **hang on cancellation**, not a wrong block, not a
+conservation breach, not a consensus split (the OCC determinism + ordered-commit core is untouched).
+Already fixed. **Confirms the substrate law again:** even the parallel-scheduler's recent bug is
+**fail-safe (liveness/coordination)**, not value/consensus — the OCC conservation core holds; the bug
+was in shutdown coordination. **No finding.**
+
+### Four non-EVM teams — the recent-bug shape is invariant
+Solana (clean), Sui (R8 dual-representation settlement — *liveness*), Aptos (R9 compiler equivalence —
+*correctness*), Cosmos (R13 OCC cancel — *liveness*). **Every real recent bug across four independent
+non-EVM teams failed safe** (liveness/correctness), because each substrate (checked arithmetic,
+determinism, OCC ordered-commit) forces it. The only value/consensus-shaped code finding in the whole
+corpus remains **MemeCore** — the lone imperative-substrate case whose swallowed-error + nondeterministic
+map could fail *unsafe*. That contrast is now backed by 4 EVM-delta chains + 6 non-EVM/EVM recent-code
+reads with real bugs, all on the safe side of the line.
