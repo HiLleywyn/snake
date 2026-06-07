@@ -1,7 +1,7 @@
 # Trust-Cartography Capstone — Findings Across the Whole Corpus
 
 *The wrap-up. One reusable lens — six buckets + three coordinates (equivalence / conservation
-floor / governance ceiling) — applied to ~51 systems across every major execution paradigm. This
+floor / governance ceiling) — applied to ~51 systems (+ a dedicated bug-hunt phase: 7 large-cap consensus deltas + 15 fresh-code reads across 5 non-EVM teams, §5b) across every major execution paradigm. This
 records what was found, the comparative spectrums that emerged, and the laws that held.*
 
 *(Updated to fold in the L1/rollup expansion sweep: Aptos, Monad + MonadBFT, Sei, Berachain, NEAR,
@@ -314,6 +314,59 @@ who is a unique human; the chain can at best prove the bookkeeping is correct.
    reminder that "conserved" should always be qualified by *for whom*: the global books can balance
    while an individual caller is still drained by a contract they under-constrained. The strongest
    posture combines both: system-level conserve-by-construction + caller-level declared bounds.
+
+---
+
+## 5b. The bug-hunt phase — delta-hunt + recent-commits, and the fail-safe-substrate boundary
+
+After the conservation cartography, two dedicated **bug-hunts** stress-tested the corpus's central
+claim ("MemeCore is the lone code-level finding") against the highest-EV surfaces. Both are logged in
+`AUDIT-LARGECAP-BUGHUNT.md` (L1–L7) and `AUDIT-RECENT-COMMITS-HUNT.md` (R1–R15).
+
+- **Delta-hunt (L1–L7):** apply the MemeCore lens (swallowed errors / nondeterministic map → consensus
+  call / unverified system-tx replay) to the **custom consensus deltas** of large-cap geth/op-geth
+  forks — where MemeCore's own bug lived. BSC, Polygon, Sonic, Celo, Cronos, Berachain — **all clean**;
+  each implements the exact patterns MemeCore got wrong *correctly* (sort/canonicalize before
+  consensus-critical use, validate ordering, propagate errors, verify replay). Sonic *contained* the
+  MemeCore smell (a map-range in epoch sealing) but canonicalized it in `Build()`.
+- **Recent-commits hunt (R1–R15):** read the **freshest code** (post-last-audit) across 3 EVM stacks
+  (geth/reth EIP-7928 BAL; op-stack interop traced 3 layers deep: contract → supervisor → reorg) and
+  **5 non-EVM teams** (Solana capitalization + Alpenglow; Sui address-balance + Mysticeti; Aptos
+  compiler + Coin↔FA; Cosmos Block-STM + staking; Celestia DA). Determinism/conservation/consensus-safety
+  primitives **clean** everywhere; the hunt surfaced **several real recent defects** — all *already
+  fixed* by their teams.
+
+**The finding of the bug-hunt is a measured boundary, not a vibe — the fail-safe-substrate law:**
+
+> Every real recent defect found in well-engineered chains **failed safe** — it manifested as
+> **liveness** (abort/hang/stuck) or **correctness** (wrong-constant), with **conservation and
+> consensus-safety intact** — because the chain's *substrate* forces it: checked arithmetic (underflow
+> → abort, not wrap), determinism / canonical ordering (no divergence), OCC ordered-commit, exact
+> share/rational accounting. **MemeCore is the sole exception** — the one imperative-substrate case
+> (geth-fork consensus, swallowed error + nondeterministic map) where the substrate did **not** force
+> fail-safe, so its failure shape is **value/consensus** (potential silent divergence). That is exactly
+> why it is the corpus's only finding.
+
+The real recent defects, all fail-safe, all pre-fixed (the boundary's "safe" side):
+| Defect | Chain | Class (capstone) | Failure shape |
+|---|---|---|---|
+| Address-balance gas-underflow at settlement | Sui (R8) | dual representation (§Bucket 3) | liveness (settlement abort) |
+| Const-fold shift/modulo overflow | Aptos (R9) | compile≡runtime equivalence (§4h) | correctness (wrong constant) |
+| Block-STM `CancelAll` ESTIMATE not cleared | Cosmos (R13) | OCC determinism spine (§4g) | liveness (executor hang) |
+| Redelegate from removed source validator | Cosmos (R14) | stake accounting | liveness (stuck stake) |
+| Proof-querier unbounded `square.Construct` | Celestia (R15) | DA query path | liveness (DoS) |
+The two real bugs in *value* code (Sui R8, Aptos R9) landed on the **two predicted frontier classes**
+(dual representation; cross-implementation equivalence) — and when the directly-analogous surfaces were
+then checked (Aptos Coin↔FA R10, Sui Mysticeti R11), they were **clean**, proving these are *frontiers
+where bugs appear*, not universal flaws. *(Meta: the Sui R8 fix is co-authored by this very model,
+"Claude Opus 4.8," via Claude Code.)*
+
+**Net:** the lens has run across **~60 systems + 7 large-cap deltas + 15 fresh-code reads (EVM &
+non-EVM, 5 non-EVM teams)**, with **every real defect on the fail-safe side of the boundary and
+MemeCore the only one across it.** The exploitable *code* surface at the top tier is, on this evidence,
+essentially closed; the live risk concentrates at the **fail-safe frontier** (fresh
+dual-representation/settlement/equivalence code — caught & fixed) and at the named **off-chain /
+cross-client / governance / oracle** substrate.
 
 ---
 
