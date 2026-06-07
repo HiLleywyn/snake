@@ -59,3 +59,30 @@ defect, but a per-coin trust note: whoever holds a `MintCapability` can replicat
 correctly-conserving `Coin`↔`FungibleAsset` bridge (1:1, type-guarded) and Move Prover supply specs.
 No untrusted-input→value path, nothing to disclose. The next pull for Aptos is the aggregator +
 Block-STM parallel-execution conservation (the relaxed-OCC class), not the coin module.
+
+---
+
+# Addendum — Pass 2: Block-STM parallel execution (the Monad OCC twin) — opened, sound
+
+Closing the coverage gap flagged in Pass 1, using `AUDIT-MONAD-PARALLEL.md` as the explicit reference
+(Connection B in `AUDIT-CONNECTIONS-AND-SELFCHECK.md`): Aptos Block-STM and Monad's optimistic
+parallel EVM are the **same technique** — optimistic concurrent execution + read-set conflict
+detection + deterministic re-execution + ordered commit. Mapping Monad's anatomy onto Aptos:
+
+| Monad (C++) | Aptos Block-STM (Rust) |
+|---|---|
+| `state.original()` read-set | `captured_reads.rs` (`DataRead` per key) |
+| `can_merge` (re-validate reads vs committed) | `validate_data_reads_impl` (`captured_reads.rs:924`) — re-reads each key via `fetch_data_no_record` and checks `compare_data_reads(...) == Contains` |
+| relaxed-merge (`min_balance`, balance-only) | **read-kind granularity** (`DataRead::{Value, Metadata, ResourceSize, Exists}`, `:79`) — a read conflicts only if the *granularity it observed* changed (read `Exists` → valid even if the value changed). *More general/principled than Monad's balance-specific relaxation.* |
+| `prev_` promise chain (ordered commit) | the `scheduler` commits in strictly increasing `TxnIndex`; a tx commits only after lower indices validate |
+| `MONAD_ASSERT(can_merge)` halt | `Err(Dependency/Unresolved)` → validation failure → re-execute (new incarnation) |
+
+**Verdict: sound, same OCC family as Monad.** Re-validation re-reads the live multi-version map and
+fails the tx if any captured read is no longer `Contains`-consistent; conflicts force re-execution at
+a new incarnation; commit is deterministic in txn order. So Block-STM's result equals sequential
+execution (the published Block-STM guarantee), and conservation holds across parallelism the same way
+Monad's does. **Load-bearing piece (per the Monad template):** the `compare_data_reads` / `Contains`
+semantics — the analog of Monad's `try_fix_account_mismatch`; soundness requires `Contains` to never
+say "valid" when the precise observed granularity actually changed. Read at the rule level; the
+read-kind comparator is the deepest residual (matches the Monad relaxed-merge residual). **No
+finding.**
