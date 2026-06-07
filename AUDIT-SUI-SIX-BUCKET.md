@@ -508,6 +508,123 @@ fragility to live.
 
 ---
 
+# Addendum — Pass 4: Staking-pool exchange rate & rounding direction (`staking_pool.move`)
+
+This is the most *staker-facing* surface: the share↔asset exchange rate that governs
+stake-in and withdraw-out. It is the classic home of two value-extraction bugs —
+**rounding in the wrong direction** (withdrawer rounds up, drains the pool) and the
+**first-depositor / share-inflation attack** (ERC-4626 style: mint 1 share, donate to
+inflate the rate, later depositors round to 0 shares and lose their deposit). I went
+looking for both. Sui closes both, and does so with explicit guards rather than luck.
+
+### Rounding is uniformly *down, toward the pool* — on both legs
+
+The two conversion primitives both use the truncating `mul_div!` (`:650`, `:660`):
+
+```move
+fun get_sui_amount(rate, token_amount):  mul_div!(rate.sui_amount,        token_amount, rate.pool_token_amount)  // :650
+fun get_token_amount(rate, sui_amount):  mul_div!(rate.pool_token_amount, sui_amount,   rate.sui_amount)          // :660
+```
+
+- **Staking** mints `get_token_amount(sui)` → rounds *down* → you get slightly fewer
+  shares than the exact ratio; the pool keeps the dust.
+- **Withdrawing** redeems `get_sui_amount(tokens)` → rounds *down* → you get slightly
+  less SUI than exact; the pool keeps the dust.
+
+Both legs favor the pool (i.e. the *remaining* stakers). A user can never round **up** to
+extract more than their proportional share; rounding dust is socialized to the collective.
+This is the correct, safe direction, and the fungible-staked-SUI withdraw path makes it a
+*checked* property rather than an emergent one:
+
+```move
+// calculate_fungible_staked_sui_withdraw_amount, :263
+// invariant check, just in case
+assert!(principal_withdraw_amount + rewards_withdraw_amount <= expected_sui_amount, EInvariantFailure);
+```
+
+The withdrawal is asserted `<=` what the exchange rate says you are owed — an explicit
+anti-over-withdrawal guard. **enforced invariant** (rounding direction + `<=` assert).
+
+### The share-inflation / donation attack is structurally closed
+
+The attack needs an attacker-controllable way to move `sui_amount` without a matching
+`pool_token_amount` move, between a victim's quote and execution. On Sui the exchange rate
+is **not a live function of a balance an attacker can poke** — it is a per-epoch snapshot
+computed by the *system* at epoch boundaries:
+
+```move
+// process_pending_stake, :400 — called at epoch change from validator_set::advance_epoch
+let latest_exchange_rate = PoolTokenExchangeRate {
+    sui_amount: pool.sui_balance,
+    pool_token_amount: pool.pool_token_balance,
+};
+...
+pool.pool_token_balance = latest_exchange_rate.get_token_amount(pool.sui_balance);  // :413
+```
+
+and reads go through `pool_token_exchange_rate_at_epoch` (`:592`), which returns the
+**historical stored snapshot** for the relevant epoch, not a recomputed-from-live value.
+Rewards are added by the system at epoch change (`deposit_stake_rewards`), not by a public
+donate. Three further guards:
+- **First deposit is 1:1.** A preactive/empty pool returns `initial_exchange_rate()` =
+  `{0, 0}`, and `get_token_amount`/`get_sui_amount` short-circuit to a 1:1 return when
+  either side is 0 (`:646`, `:656`). No rate to inflate on the first staker.
+- **Zero-share mint is rejected.** `convert_to_fungible_staked_sui` asserts
+  `pool_token_amount > 0` (`:292`, `EStakedSuiBelowThreshold`) — you cannot be issued 0
+  shares for non-zero principal (the dust-griefing primitive).
+- **Cached rate must equal real balances.** `check_balance_invariants` (`:667`) asserts
+  `get_token_amount(pool.sui_balance) == pool.pool_token_balance` — the stored rate cannot
+  drift from the actual SUI/token balances. This ties the abstract rate back to held value.
+
+**Verdict: not exploitable in the reviewed path** — the manipulable precondition (live,
+donation-movable rate) does not exist; the rate is a system-computed, balance-tied,
+per-epoch snapshot.
+
+### Underflow / dust bookkeeping is explicit, not accidental
+
+- `request_withdraw_stake` excludes preactive pools from the direct-withdraw branch
+  *specifically* "to avoid potential underflow on subtraction" (`:163`).
+- `calculate_fungible_staked_sui_withdraw_amount` clamps
+  `principal.min(total_sui_amount)` before the `total_sui_amount - principal` subtraction
+  (`:242`–`:248`) — explicit underflow guard.
+- `process_pending_stake_withdraw` handles the case where withdrawals exceed
+  `sui_balance` by carrying the deficit as an `UnderflowSuiBalance` extra-field and
+  reconciling it on the next `process_pending_stake` (`:375`–`:412`), with `else 0`
+  clamps instead of underflowing. Careful cross-epoch dust accounting. **enforced.**
+
+### Two honest residuals (neither a finding)
+
+- **The author-flagged "unreachable" fallback.** `pool_token_exchange_rate_at_epoch`
+  ends with `// This line really should be unreachable. Do we want an assert false here?`
+  and returns a 1:1 `initial_exchange_rate()` (`:611`–`:612`). If the lookup ever fell
+  through (it shouldn't — it's bounded by `activation_epoch`), it would return a *1:1*
+  rate, which could misprice a withdrawal. The author's own uncertainty is the right
+  signal here. **hardening debt** — an `abort` would be safer than a silent 1:1 default.
+- **The 1:1 zero-side short-circuit** in `get_sui_amount`/`get_token_amount` (`:646`,
+  `:656`). Acknowledged dust case ("The other amount might be non-zero when there's dust
+  left in the pool"). Not reachable for extraction (it requires total pool tokens or total
+  SUI to be 0, i.e. nobody holds a claim), but it is an interpretation seam worth a human
+  eye if the pool lifecycle changes. **noted, not a finding.**
+
+### Where this lands
+
+| Subject | Verdict |
+|---|---|
+| Rounding direction (stake & withdraw) | **enforced invariant** — both legs truncate toward the pool; `<= expected` assert on FSS withdraw |
+| Share-inflation / donation attack | **not exploitable in reviewed path** — rate is a system, balance-tied, per-epoch snapshot; first deposit 1:1; zero-share mint rejected; `check_balance_invariants` ties rate to balances |
+| Underflow / dust bookkeeping | **enforced** — explicit `.min()` clamps, preactive exclusion, `UnderflowSuiBalance` carry |
+| `mul_div!` overflow / cast | **enforced** — `u128` widening; checked `as u64` abort (per Pass 3) |
+| "unreachable" 1:1 exchange-rate fallback | **hardening debt** — author-flagged; silent 1:1 default rather than abort |
+
+**Throughline of Pass 4:** the place where stakers could lose value to rounding is
+defended the way it should be — rounding is forced *against* the withdrawer, the
+exchange rate is a system snapshot rather than a pokeable live value, and the one soft
+spot is the author's own flagged "should be unreachable" default, which fails safe-ish
+(1:1) rather than dangerously. Consistent with the whole report: the residuals are
+*liveness/hardening* shaped, not *value-creation* shaped.
+
+---
+
 ## Nothing routed privately
 
 No untrusted-input→unvalidated→value-moving path was found. The largest residual (the
