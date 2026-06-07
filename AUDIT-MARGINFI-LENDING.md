@@ -122,6 +122,42 @@ oracle-source settings are the apex-relevant powers (they set who is solvent), p
   top follow-up, not traced.
 - Emode (`emode.rs`), rate limiter, staked-collateral settings, Token-2022 paths.
 
+## Addendum — Pass 2: the cross-protocol adapter seam (the deferred deep-dive)
+
+Pass 1 flagged the external-protocol value-reporting seam as the highest-value target. Read
+in full (`instructions/{juplend,kamino}/`), it turns out to be **carefully defended** — and it
+yields the *positive* finding: the correct pattern for trusting another program's value-
+reporting, implemented. Two structural defenses:
+
+1. **Kamino banks are oracle-priced and capability-restricted.** A Kamino position is valued
+   for solvency via marginfi's **own oracle** (`KaminoConfigCompact` carries `oracle`,
+   `oracle_setup`, `oracle_max_age`, `oracle_max_confidence`), not by trusting Kamino's
+   internal exchange rate; and the bank "cannot earn interest or be borrowed against"
+   (`state/kamino.rs:9`), shrinking the blast radius to collateral valuation only.
+2. **JupLend withdraw = refresh → compute-conservatively → CPI → verify-effect**
+   (`instructions/juplend/withdraw.rs`):
+   - **refresh-before-read:** `cpi_update_rate()` refreshes the external `token_exchange_price`
+     for the slot *before* any math (`:60`) — never prices against a stale external rate;
+   - **conservative rounding:** `ceil(assets/rate)` shares burned, `floor(shares·rate)` assets
+     redeemed (`:46`,`:70`) — rounds against the user;
+   - **verify the CPI *effect*, don't trust the accounting:** "Verify received underlying ==
+     requested and burned fTokens == expected" (`:49`) — even a manipulated external exchange
+     price is caught because marginfi checks the *actual* tokens received vs expected;
+   - **stale-oracle guards:** during liquidation/receivership `price > 0` is required
+     ("prevent exploits with stale oracles", `:100`–`:103`) and a **low-bias** oracle price
+     (`fetch_asset_price_for_bank_low_bias`, `:93`) under-values the asset being removed so it
+     cannot be over-withdrawn on an inflated quote;
+   - **can't-burn-more-than-held:** `require!(shares_to_burn <= f_tokens_balance)` (`:138`).
+
+**Verdict: enforced (defense-in-depth).** The seam that was *unverifiable* in the closed-source
+Meteora vault (`AUDIT-METEORA-VAULT-SDK.md`) is, in marginfi's full source, handled with the
+right discipline: refresh the external rate, round conservatively, and **verify the CPI's
+realized effect rather than trusting the external program's reported state.** The irreducible
+residual shrinks to (a) the refreshed external rate itself being honest for the in-flight
+amount — bounded by the received-amount verification — and (b) marginfi's own oracle for
+collateral valuation (the shared 6b). This is the concrete, positive template for the
+value-reporting risk class the corpus kept naming.
+
 ## Nothing routed privately
 
 No untrusted-input→value path found. Interest accrual conserves by construction — the fees
