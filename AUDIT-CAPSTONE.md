@@ -1,12 +1,12 @@
 # Trust-Cartography Capstone — Findings Across the Whole Corpus
 
 *The wrap-up. One reusable lens — six buckets + three coordinates (equivalence / conservation
-floor / governance ceiling) — applied to ~45 systems across every major execution paradigm. This
+floor / governance ceiling) — applied to ~47 systems across every major execution paradigm. This
 records what was found, the comparative spectrums that emerged, and the laws that held.*
 
 *(Updated to fold in the L1/rollup expansion sweep: Aptos, Monad + MonadBFT, Sei, Berachain, NEAR,
 Stellar, Cardano, XRPL, TON, Osmosis, TradePort, Avalanche, Algorand, Hyperliquid, Polkadot, zkSync,
-Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
+Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa, Filecoin, Stacks — see the second evidence block in §2 and the new spectrums §4f/§4g.)*
 
 ---
 
@@ -75,6 +75,8 @@ finding the real bug where one existed, and naming the trust precisely where non
 | **Monero** | RingCT privacy | Pedersen `Σin = Σout + fee·H` + range proofs | range-proof + DL soundness (6b) | clean; completes privacy triad |
 | **ICP** | canister ledger | **complement-pool** (`supply = max − token_pool`, derived) | trap-rollback platform guarantee | clean; can't-drift design |
 | **Kaspa** | BlockDAG (GHOSTDAG) | UTXO `out ≤ in` | blue/red coloring feeding blue_work | clean; DAG linearized deterministically |
+| **Filecoin** | storage-collateral | `balance ≥ locked+precommit+pledge`; capped baseline mint | PoRep/PoSt soundness (6b); FVM transfer (ref-fvm) | clean; collateral-backed + capped issuance |
+| **Stacks** | Clarity (caller-scoped) | **post-conditions**: caller-declared asset bounds, Deny catch-all | `AssetMap` recorder completeness; mode-dependence | clean; novel *caller* conservation |
 
 Across the expansion: **no new findings** — every target resolved to a sound conservation floor + a
 named residual, exactly as the original 25 did. MemeCore remains the lone exploitable-class finding.
@@ -215,6 +217,14 @@ who is a unique human; the chain can at best prove the bookkeeping is correct.
    trusts." Conservation-via-recompute (Algorand's `totals.All()`, Substrate's self-accounting `Drop`)
    is the one design that needs **no** external oracle — the strongest floors are the ones that
    re-derive the invariant in-protocol rather than trusting any reported state.
+7. **Conservation has a *who-is-protected* dimension (system vs caller).** Almost every system enforces
+   *system* conservation ("supply can't inflate"). Stacks/Clarity adds the orthogonal *caller*
+   conservation: post-conditions let the sender declare the asset movements their tx may cause, and the
+   VM aborts if a contract exceeds them (Deny mode rejects *any* unchecked movement). This is Law 2
+   ("verify the effect") promoted from an auditor's pattern to a transaction-format guarantee — and a
+   reminder that "conserved" should always be qualified by *for whom*: the global books can balance
+   while an individual caller is still drained by a contract they under-constrained. The strongest
+   posture combines both: system-level conserve-by-construction + caller-level declared bounds.
 
 ---
 
