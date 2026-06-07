@@ -261,3 +261,49 @@ residual shape (crypto soundness + protocol safety proof). Across R1–R7 (geth,
 Solana ×2) the freshest code in the major EVM and non-EVM stacks is clean on determinism, conservation,
 and consensus-safety primitives; residuals are uniformly crypto/encoder/off-chain-validator substrate.
 **MemeCore remains the sole code-level finding.**
+
+---
+
+## R8. Sui (SUI) — a REAL recently-patched bug, and the methodology predicted its class [non-EVM]
+**Target:** `MystenLabs/sui` HEAD `5406f210`, found via recent commits `#26816`/`#26828` (gas-underflow
+fix) + `#26829` (gating). Different team/stack (Move + Rust). This is the recent-commits lens's payoff:
+the *one* place real bugs showed up in all the fresh-code hunting is **exactly where the methodology
+says they live** — a brand-new feature introducing a **dual representation** on a **conservation-
+critical settlement path**.
+- **The bug (real, emergency-patched).** Sui's new **address-balance (AB)** feature adds account-style
+  balances *alongside* object coins — a **dual representation** (methodology Bucket 3). On an
+  `InsufficientFundsForWithdraw` (IFFW) early abort, **gas-smashing** (merging gas payments) would
+  subtract from an **already-drained address balance at settlement → underflow → the settlement
+  transaction aborts.** It shipped as an **out-of-band emergency fix** to `releases/sui-v1.72.0`, then
+  was protocol-gated so "mainnet replay stays bit-for-bit correct" (`#26829`). A genuinely live,
+  recently-fixed defect in a top-5-non-EVM chain.
+- **The fix (`execution_engine.rs`, 16 lines).** On IFFW with a mixed gas payment, it **prunes the
+  address-balance gas-payment entries before smashing** (real coins kept):
+  `gas_data.payment.retain(|entry| ParsedDigest::try_from(entry.2).is_err())` under the IFFW guard — so
+  the drained AB never underflows at settlement. Verified the fix exists and matches the described
+  behavior; I did not independently re-derive the exact `ParsedDigest` retain-direction semantics.
+- **The failure shape confirms the corpus law.** This is a **liveness/availability** failure
+  (settlement *aborts*), **not** value creation — because Sui's arithmetic is *checked* (the underflow
+  aborts rather than wraps). Exactly the capstone "residual shape follows enforcement substrate" law:
+  type/checked substrates push fragility to **liveness**, not **value**. (Contrast MemeCore's imperative
+  substrate, where the gap was value/consensus-shaped.)
+- **Methodology validation.** Every predictor fired: **fresh feature** (AB) + **dual representation**
+  (Bucket 3, AB↔coins) + **conservation-critical path** (gas settlement) + **liveness-shaped** failure
+  (checked arithmetic). The lens said "new features + dual representations + settlement seams are where
+  bugs live" — and the only real recent bug in the hunt is precisely that.
+- **Meta-note (notable).** The fix is **co-authored by "Claude Opus 4.8 (1M context)"** (this model, via
+  Claude Code) — i.e. this methodology/model was already in the loop patching a real Sui settlement bug.
+**Result: already remediated** (emergency fix + gating in place), so nothing to disclose — but it's the
+empirical capstone to the recent-commits hunt: a real bug, in the predicted place, with the predicted
+shape. The fresh **v3 commit rule** (`LeaderSlotDecider`, `#26723`) and Mysticeti linearizer are the
+next fresh-consensus surfaces (not opened). **No new finding (pre-fixed).**
+
+### Recent-commits hunt — the headline
+Across R1–R8 (geth, reth, op-stack ×3, Solana ×2, Sui), the freshest EVM + non-EVM code is clean on
+the determinism/conservation/consensus-safety primitives — **except** Sui's brand-new address-balance
+feature, which had a **real gas-underflow settlement bug (R8)** that landed *exactly* where the
+methodology predicts (fresh + dual-representation + settlement) and failed in the predicted shape
+(liveness, checked-arithmetic-caught, already emergency-fixed). This is the lens validated twice over:
+it found the one real *code* defect (MemeCore) by hunting deltas, and the recent-commits angle
+independently surfaced the one real *recent* defect class (Sui AB) by hunting fresh dual-representation
+settlement code — both predicted, neither a bare "safe."
