@@ -129,7 +129,7 @@ closed** (LaunchLab, Alpha-Vault, Vault-SDK) → **audit-PDFs only** (Defi App) 
 is enforced or broken.
 
 ### (f) Settlement-seam trust spectrum (how cross-layer withdrawals are made safe)
-The expansion sweep nailed down the three ways a chain lets value *leave* to an L1/host while
+The expansion sweep nailed down the four ways a chain lets value *leave* to an L1/host while
 keeping conservation — graded by the **honesty assumption** each needs for *safety* (not liveness):
 - **Validity proof (zkSync)** — output trusted because a SNARK proves it valid; **0-of-N** honesty,
   purely cryptographic. A fully-malicious operator can halt but cannot steal. Irreducible oracle: the
@@ -137,12 +137,20 @@ keeping conservation — graded by the **honesty assumption** each needs for *sa
 - **Fraud proof (Optimism)** — output trusted unless disproven in a challenge window; **1-of-N honest
   watcher + L1 liveness** (the watcher must be able to transact during the window). Irreducible
   oracle: the FPVM (Cannon) single-step proof.
-- **Multisig + dispute (Hyperliquid Bridge2)** — output trusted because >2/3 validators signed;
-  **>2/3 honest stake** + watchers/lockers. Irreducible oracle: the closed L1 + the validator set.
+- **Light client (IBC ics20)** — output trusted because the counterparty's *own* consensus signed it,
+  Merkle-verified on-chain; **>2/3 of the *counterparty's* validators honest** (no separate appointed
+  committee). Irreducible oracle: the counterparty's consensus + CometBFT commit verification.
+- **Multisig + dispute (Hyperliquid Bridge2)** — output trusted because >2/3 of an *appointed*
+  committee signed; **>2/3 honest stake** + watchers/lockers. Irreducible oracle: the closed L1 + the
+  validator set.
 This is the sharpest **cryptographic-vs-social** contrast in the corpus and the concrete realization
-of the §9 equivalence coordinate. Note the recurring shape *underneath* all three (and Avalanche's
-atomic seam, and Canton/Splice): **request → window → finalize, with an invalidation/fraud path
-during the window** — the universal optimistic-settlement skeleton.
+of the §9 equivalence coordinate. The four ascend in *who* you must trust: nobody (validity) → any one
+honest watcher (fraud) → the counterparty's real validator set (light client) → an appointed committee
+(multisig). Note the recurring shape *underneath* all four (and Avalanche's atomic seam, and
+Canton/Splice): **request → verify → finalize, with an invalidation/fraud/freeze path** — the universal
+optimistic-settlement skeleton. *Conservation backstop seen in IBC:* even if the seam's trust fails,
+the bank-layer underflow guard bounds the blast radius (a chain can't unescrow more than it locked, and
+a Byzantine counterparty can only inflate its *own* voucher denom) — defense-in-depth under the seam.
 
 ### (g) The determinism / parallel-execution spine (parallel == sequential)
 A second cross-cutting family the expansion confirmed: **OCC + deterministic ordered commit** as the
