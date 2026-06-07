@@ -46,3 +46,43 @@ on-chain trust surface and the invariant checklist for a deeper review. The comp
 `unlist_and_accept_*` ops and the payment-split/authorization paths are where an NFT-marketplace bug
 would live and are the right targets *if* TradePort publishes source or a verified contract. Nothing
 routed (nothing found). Same class as the other closed-source targets in the corpus.
+
+---
+
+## Addendum — deeper ABI read: the escrow data model (resource structs)
+
+Per the "read the ABIs too" discipline, pulled the **resource struct definitions** (not just function
+signatures) from the same on-chain ABI — this reveals the actual escrow model, which raises the
+closed-source floor meaningfully:
+
+- **`TokenBid { bid_buyer: address, token: Object<Token>, coins: Coin<AptosCoin>, delete_ref }`**
+  (and `CollectionBid` likewise) — **the bid holds the buyer's real `Coin<AptosCoin>` inside the bid
+  object.** So bid-fund escrow is enforced by **Move linear typing** (the corpus's strongest floor,
+  verified in `AUDIT-SUI-SIX-BUCKET.md` Pass 7 + the Aptos verifier self-check): the escrowed `Coin`
+  cannot be duplicated or lost; `cancel_*` returns it to `bid_buyer`, `accept_*` pays it to the
+  seller. Funds conservation is therefore *structural*, not logic-dependent. **`bid_buyer` is the
+  authorization anchor** (cancel must check it).
+- **`Listing { token: Object<Token>, seller: address, price: u64, delete_ref, extend_ref }`** — the
+  listing escrows the token object; `seller` is the auth anchor; `extend_ref` mints the Listing-object
+  signer used to release the token on `buy`/`unlist`.
+- **No `fee`/`royalty` field in either struct** → the **payment split** (price → seller + royalty +
+  marketplace fee) is computed inside `buy_token`/`accept_*` (function logic, *not* in the ABI). That
+  is the single high-value invariant the ABI cannot settle and the top target for a source/bytecode
+  review.
+
+**Updated verdict.** The ABI deep-read upgrades the trust-surface map: bid/NFT escrow is conserved by
+Move linear typing (structural), the authorization anchors are `seller`/`bid_buyer`, and the **only**
+conservation question left unviewable is the payment-split arithmetic in the buy/accept functions
+(plus the compound `unlist_and_accept_*` auth). This is the value of reading ABIs on closed-source
+targets: it moved the residual from "the whole marketplace" down to "the fee/royalty split + the
+compound op." Still no finding (logic unviewable); nothing routed.
+
+### Methodology note (technique adopted): read on-chain ABIs/IDLs for closed-source targets
+For any closed-source on-chain target, pull the public interface before declaring it unauditable:
+- **Aptos/Sui (Move):** node API `/accounts/{addr}/modules` → typed ABI incl. **resource structs**
+  (the escrow/state data model, as here) — richest.
+- **EVM:** the verified ABI on the explorer (or 4byte/decompiled selectors) → entry points + types.
+- **Solana (Anchor):** the on-chain IDL account / published IDL → instruction + account layout.
+This raises the auditability floor for the closed-source family (`AUDIT-LETSBONK-LAUNCHLAB.md`,
+`…ALPHA-VAULT.md`, `…VAULT-SDK.md`, `AUDIT-DEFIAPP-NOTE.md`, this) from "nothing" to a typed
+trust-surface map + a narrowed residual — even when the logic stays closed.
