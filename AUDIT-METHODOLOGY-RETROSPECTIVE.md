@@ -289,6 +289,7 @@ Every system reviewed differs only in **how it discharges that one equivalence**
 | **Committee bridges** | attester threshold signs source-truth |
 | **Light-client bridges** | destination verifies encoded source consensus |
 | **zk bridges** | destination verifies a *proof* of encoded source consensus |
+| **Optimistic rollup (Base/OP Stack)** | destination assumes source-truth valid *unless an interactive fault proof disproves it within a challenge window*; Guardian kill-switch backstop |
 
 Read top-to-bottom, the discharge mechanism changes — re-execute, prove, recurse,
 trust a committee, verify an encoding, verify a proof of an encoding — but the
@@ -429,5 +430,6 @@ ecosystems, and a sharpened six-bucket model for the next target.
 zk) · `AUDIT-SUI-SIX-BUCKET.md` (Move/Rust L1, 5 passes: epoch supply, genesis,
 reward distribution, staking exchange rate, validator PoP) ·
 `AUDIT-LITECOIN-SIX-BUCKET.md` (UTXO base layer + MWEB tri-layer conservation) ·
-`AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
+`AUDIT-BASE-SIX-BUCKET.md` (OP Stack optimistic rollup: fault-proof withdrawal seam +
+Guardian backstop) · `AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
 memory → institutions).
