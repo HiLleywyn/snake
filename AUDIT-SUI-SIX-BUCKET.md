@@ -295,13 +295,107 @@ mint amount is correct." It cannot see that.
 - The consensus-side construction and BFT agreement on `GasCostSummary`/`ChangeEpoch`
   (the place where the 6a/6b trust is actually discharged) — read only at its interface,
   not its internals.
-- The stake-subsidy fund's own conservation (`stake_subsidy.move::advance_epoch`) — where
-  *genuinely new* SUI issuance (inflation) is metered out of a pre-funded balance; this is
-  the real "is inflation bounded" question and deserves its own pass.
+- ~~The stake-subsidy fund's own conservation (`stake_subsidy.move::advance_epoch`)~~ —
+  **now covered in the Addendum below (Pass 2).** Short version: there is no genuinely new
+  issuance; the subsidy is a drawdown of a genesis-pre-allocated `Balance<SUI>`.
 - `validator_set.move` reward distribution / slashing arithmetic — only its `advance_epoch`
   signature was read.
 - Older execution-adapter versions (`v0`–`v3`) — they carry the same call sites but were
   not diffed against `latest`.
+
+---
+
+# Addendum — Pass 2: Is SUI *inflation* bounded? (`stake_subsidy.move` → `genesis.move`)
+
+Pass 1 answered "is the per-epoch supply delta *conserved*" (yes, by consensus
+agreement). It did **not** answer the orthogonal question every token audit must ask:
+"is *new issuance* bounded?" Those are different — a chain can conserve value per-tx
+while still inflating without limit if rewards are minted from nothing. So I followed
+the stake-subsidy path, which is where any inflation would live.
+
+The result reframes the question: **on Sui there is no inflation in the supply sense at
+all.** What is called the "stake subsidy" is a *drawdown of a finite, pre-minted balance
+carved out of the genesis supply* — not creation of new tokens.
+
+### The drawdown is overdraft-proof and self-limiting (`stake_subsidy.move`)
+
+`StakeSubsidy.balance: Balance<SUI>` (`:16`) is a real linear `Balance` — the same
+`store`-without-`copy`/`drop` type whose conservation the bytecode verifier enforces
+(Pass 1, Bucket 1a). Each epoch draws from it via:
+
+```move
+let to_withdraw = self.current_distribution_amount.min(self.balance.value());  // :59
+let stake_subsidy = self.balance.split(to_withdraw);                           // :62
+```
+
+Two independent guards make over-issuance impossible:
+1. **`.min(self.balance.value())`** (`:59`) — the draw is clamped to the remaining fund,
+   so it can never request more than exists.
+2. **`split` itself asserts `self.value >= value`** (`balance.move:84`, `ENotEnough`) —
+   even if the clamp were wrong, the linear-type split would abort, not overdraft.
+
+Cumulative subsidy is therefore bounded above by the initial fund balance, full stop.
+The amount also **decays geometrically**: every `stake_subsidy_period_length`
+distributions it is reduced by `stake_subsidy_decrease_rate` bps (`:66`–`:73`). The
+decrease arithmetic is safe: `decrease_rate <= 10000` is asserted at construction
+(`:39`), so `decrease_amount = current * rate / 10000 <= current`, and the subtraction
+at `:72` cannot underflow; the `u128`→`u64` cast is bounded by `current`.
+
+**Verdict: enforced invariant** — cumulative stake subsidy ≤ genesis subsidy fund, by
+linear typing + explicit overdraft clamp. Inflation is not merely bounded, it is *finite
+and pre-allocated*.
+
+### The fund is carved from genesis supply, and genesis is fully partitioned (`genesis.move`)
+
+The fund is not minted — it is split off the one-time genesis supply (`:137`):
+
+```move
+let subsidy_fund = sui_supply.split(stake_subsidy_fund_mist);   // carve out the fund
+...
+allocate_tokens(sui_supply, allocations, &mut validators, ctx); // distribute the rest
+...
+sui_supply.destroy_zero();   // :206 — ABORTS unless the remainder is exactly zero
+```
+
+`sui_supply: Balance<SUI>` is the genesis-minted total (the one tx where conservation is
+deliberately skipped — `execution_engine.rs:761`, "genesis transaction which mints the
+SUI supply"). The closing `destroy_zero()` (`:206`) is a **linear-type conservation
+assertion at the protocol's birth**: genesis cannot complete unless
+`Σ allocations + subsidy_fund == total minted`, with no remainder (`destroy_zero` aborts
+on non-zero, `balance.move:97`) and no overdraft (each `split` aborts on insufficiency).
+The genesis books must balance to the mist or the chain does not start.
+
+**Verdict: enforced invariant** — total SUI is fixed at genesis and exhaustively
+partitioned; subsequent "rewards" are recycled gas (Pass 1) plus subsidy drawdown (this
+pass), neither of which raises total supply.
+
+### Where this lands
+
+| Subject | Verdict |
+|---|---|
+| Stake-subsidy drawdown (overdraft) | **enforced invariant** — `.min()` clamp + linear `split` assert; ≤ fund balance |
+| Stake-subsidy decay arithmetic | **enforced** — `rate <= 10000` asserted ⇒ no underflow / safe cast |
+| Genesis supply partition | **enforced invariant** — `destroy_zero()` forces exact partition (no remainder, no overdraft) |
+| "Sui inflation" framing | **reframed** — not new issuance; a finite genesis-allocated fund released over time |
+
+### Two honest residuals from Pass 2 (neither is a finding)
+
+- **`stake_subsidy_period_length` is not asserted non-zero.** `advance_epoch` computes
+  `distribution_counter % stake_subsidy_period_length` (`:66`); a zero period length
+  would be a division-by-zero abort. It is a genesis/governance parameter (trusted system
+  config, not user input), and a zero value would brick epoch change loudly rather than
+  move value — **constraint debt**, not exploitable. Worth a one-line assert in `create`.
+- **The hardcoded epoch-560 catch-up branch** (`sui_system_state_inner.move:921`,
+  `distribution_counter == 540 && old_epoch > 560`) is a one-time historical
+  reconciliation for a mainnet safe-mode incident (the 560→561 change where reward
+  distribution was skipped — the very safe-mode seam flagged in Pass 1, observed firing
+  in production). It is bounded and self-limiting: each catch-up still routes through
+  `advance_epoch()`'s `.min()` clamp (so it cannot exceed the fund), and the
+  `counter == 540` guard is a one-shot (after catch-up the counter exceeds 540 and the
+  branch is never re-entered). It is *evidence* that the safe-mode degradation path is
+  real and has been exercised — a good audit signal, not a defect. **enforced / bounded.**
+
+---
 
 ## Nothing routed privately
 
@@ -312,3 +406,13 @@ re-derives them deterministically. There is nothing here to disclose to a securi
 channel — only an architectural fact to record: **on Sui, "SUI conservation is checked"
 is true for every transaction except the one transaction that changes the SUI supply,
 where it is instead an agreement property of the consensus layer.**
+
+Pass 2 adds the complementary fact: **that epoch transaction never raises total supply.**
+SUI is minted exactly once, at genesis, into a `Balance<SUI>` that genesis exhaustively
+partitions (`destroy_zero` forces the books to balance to the mist). What looks like
+inflation — the stake subsidy — is a bounded drawdown of a genesis-pre-allocated fund,
+overdraft-proof by linear typing plus an explicit `.min()` clamp, and geometrically
+decaying. So the two passes bracket the supply question from both sides: per-epoch the
+delta is *conserved* (by consensus), and globally the total is *fixed and finite* (by the
+genesis partition). Neither guarantee lives where you would first look — one is in Rust,
+the other at genesis — which is itself the methodology's recurring lesson.
