@@ -81,3 +81,38 @@ pattern: **well-resourced large-cap teams get the consensus delta right** — Me
 (a smaller, less-reviewed parlia descendant), which is precisely why it's the corpus's one finding. The
 remaining large-cap delta surfaces (opBNB/Mantle op-stack deposit/derivation, Cronos, Sonic/Lachesis,
 Gnosis posdao) are the next candidates, but the EV is declining: the failure class is rare at this tier.
+
+---
+
+## L3. Sonic / Fantom (S/FTM) — Lachesis epoch-sealing + SFC system-call (clean; verified through the dependency)
+**Target:** `0xsoniclabs/sonic` HEAD `dc8f989`, `gossip/blockproc/{sealmodule,drivermodule}` +
+`Fantom-foundation/lachesis-base inter/pos/validators.go`. A genuinely *different, large* consensus
+delta (Lachesis aBFT DAG + the SFC/driver "internal transactions" called during epoch sealing — a
+system-call-during-finalize pattern). Newer code (recent Sonic rebrand). Hunted classes B + C.
+- **A real MemeCore-smell — traced and cleared.** `OperaEpochsSealer.SealEpoch` (`sealer.go:72`) does
+  **`for v, profile := range s.bs.NextValidatorProfiles`** over a **map** — the exact MemeCore pattern.
+  But the loop only `builder.Set(v, weight)` into a *keyed* `pos.BigBuilder` (order-independent), and
+  `builder.Build()` assigns validator indices via **`sortedArray()` — "sorted by weight and ID",
+  `sort.Sort(array)`** (lachesis-base `validators.go:97,164-172`). So the resulting validator set is
+  **canonical regardless of map-iteration order**; everything downstream iterates by validator *index*
+  (`for newValIdx := 0; newValIdx < newValidators.Len()`). Class C **clean** — the canonicalization is
+  in `Build()`, not an explicit sort, so it required reading through the dependency to confirm.
+- **System-call calldata is canonical.** Driver internal-txs build the SFC epoch metrics by validator
+  *index* (`driver_txs.go:116-137`) and seal with **`es.Validators.SortedIDs()`** (`:147`); cheaters
+  come from an ordered slice; confirmed DAG events are `sort.Sort(confirmedEvents)` (`c_block_callbacks.go:193`).
+- **Class B (errors).** The SFC/driver calls are **deterministic EVM internal txs** (canonical
+  calldata) applied through the standard EVM path with receipts — so any revert is *uniform across all
+  nodes* (same input → same result), which is precisely what prevents the MemeCore-style *silent
+  divergence* (there the danger was nondeterministic input → different revert outcomes per node).
+**Result: clean.** The one map-range that looked like the MemeCore bug is rendered deterministic by
+`Build()`'s weight+ID sort; system-call inputs are canonical; internal-tx failures are uniform.
+**Residual:** Lachesis event/consensus internals (BLS/quorum, the DAG finalization) — the deeper
+consensus layer, not opened. **No finding.**
+
+### Status (3 large-cap consensus deltas, all clean)
+BSC, Polygon, Sonic — three structurally different large-cap consensus deltas (parlia+fast-finality;
+bor state-sync; Lachesis epoch-seal+SFC), all **clean** on the MemeCore classes. Sonic is the most
+instructive: it *contains* the MemeCore smell (a map-range in epoch sealing) but canonicalizes it in
+`Build()` — caught and cleared only by tracing into the dependency. The pattern holds firmly: large-cap
+teams canonicalize before consensus-critical use; MemeCore's raw unsorted map → system call is the
+genuine outlier.
