@@ -431,5 +431,7 @@ zk) · `AUDIT-SUI-SIX-BUCKET.md` (Move/Rust L1, 5 passes: epoch supply, genesis,
 reward distribution, staking exchange rate, validator PoP) ·
 `AUDIT-LITECOIN-SIX-BUCKET.md` (UTXO base layer + MWEB tri-layer conservation) ·
 `AUDIT-BASE-SIX-BUCKET.md` (OP Stack optimistic rollup: fault-proof withdrawal seam +
-Guardian backstop) · `AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
+Guardian backstop) · `AUDIT-GOVERNANCE-CEILING.md` (cross-target pattern: the privileged
+role that can replace the mechanism — `assurance(system) ≤ assurance(governance_root)`) ·
+`AUDIT-REASONER-EPISTEMOLOGY.md` (the reflexive turn: agent → reasoning →
 memory → institutions).
