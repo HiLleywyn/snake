@@ -221,3 +221,43 @@ capitalization vs EVM balances). Solana verifies total supply by full recompute 
 "strongest-floor" family as Algorand/ICP/Tezos — and the freshest change *hardens* that recompute. The
 non-EVM frontier looks the same as the EVM one: clean conservation core, residual at the verification
 substrate.
+
+---
+
+## R7. Solana / Agave — Alpenglow / votor consensus (the freshest consensus code in the repo) (clean) [non-EVM]
+**Target:** `anza-xyz/agave`, `votor/src/consensus_pool/{vote_pool,slot_stake_counters,certificate_builder}.rs`.
+The **newest consensus code in the corpus** — Solana's Alpenglow (votor) replacing TowerBFT, brand-new
+and consensus-safety-critical. The conservation analog is *safety*: no two conflicting blocks both
+notarized/finalized. Hunted the MemeCore classes + the BFT-safety primitives (vote double-count,
+threshold correctness, determinism).
+- **Vote dedup — each validator counted once (no equivocation/double-count inflation).** `vote_pool.rs`
+  keeps `prev_voted_validators: BTreeSet<Pubkey>`; `add_vote` does `if
+  !self.prev_voted_validators.insert(key) { return }` (`:30-36`) — a re-vote is rejected, so a validator
+  cannot inflate a certificate's stake by voting twice. The notarize pool (`prev_voted_block_ids:
+  BTreeMap<Pubkey, BTreeSet<Hash>>`) additionally rejects a repeated block_id per validator and caps
+  `max_entries_per_pubkey` (`:78-96`). This is the anti-equivocation / quorum-honesty primitive (the
+  Solana analog of MonadBFT's `DuplicateValidator` guard).
+- **Thresholds are exact rationals — no float determinism hazard.** Stake fractions compared as
+  `Fraction::new(num_stake, self.total_stake) >= THRESHOLD` (`slot_stake_counters.rs:158`); the
+  Alpenglow safe-to-notar conditions (`:117,134-137`): `notar ≥ 40%` OR (`notar ≥ 20%` AND
+  `notar+skip ≥ 60%`), and a skip threshold — all exact-rational comparisons (no `f64`, so no
+  cross-node float divergence; contrast EOS's softfloat-contained float, L-sweep). Deterministic.
+- **Deterministic containers.** `BTreeSet`/`BTreeMap` (ordered) throughout — no Go-map-style
+  nondeterministic iteration into a consensus decision (the MemeCore class is structurally absent).
+**Result: clean** — the freshest consensus code handles vote dedup (no double-count), exact-rational
+stake thresholds (no float), and deterministic ordered containers correctly. Same BFT-safety shape as
+MonadBFT (vote-once + stake-supermajority quorum), in brand-new non-EVM Rust. **Residual:** the **BLS
+signature aggregation** (does an aggregate certificate genuinely prove the counted validators signed —
+the crypto under the stake count) and the **Alpenglow quorum-intersection safety proof** (that the
+40/20/60 thresholds actually guarantee no two conflicting certs — the protocol proof, per the paper) —
+the deeper trusts, same residual shape as MonadBFT. **No finding.**
+
+### Non-EVM recent-commits status (R6–R7)
+Two non-EVM Solana reads on the freshest, most-critical surfaces: **R6** capitalization (total-supply
+conservation, recompute-verified, recent cached-account fix correct) and **R7** Alpenglow/votor (newest
+consensus — vote-dedup + exact-rational thresholds + deterministic containers, all sound). The
+recent-commits lens transfers fully to non-EVM: same failure classes checked, same clean result, same
+residual shape (crypto soundness + protocol safety proof). Across R1–R7 (geth, reth, op-stack ×3,
+Solana ×2) the freshest code in the major EVM and non-EVM stacks is clean on determinism, conservation,
+and consensus-safety primitives; residuals are uniformly crypto/encoder/off-chain-validator substrate.
+**MemeCore remains the sole code-level finding.**
