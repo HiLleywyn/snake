@@ -175,6 +175,31 @@ conventional clique/parlia and sound at the import gate — which keeps §6-B/C 
 two consensus-robustness items worth fixing remain **§6-B (swallowed system-call error)** and
 **§6-C (unsorted reward-call validator list)**, both already routed privately.
 
+## Addendum — Pass 3: custom hardforks (GasTree / RewardTree / CanPraTree) — clean
+
+- **RewardTree** (`RewardTreeForkBlock`) — block-reward reduction (to `300·10^17` wei). Covered
+  in Bucket 1/5: fixed, deterministic, overflow-guarded switch. **enforced.**
+- **GasTree** (`GasTreeForkBlock`) — base-fee floor reduction (1500 → 15 gwei). Forks
+  `CalcBaseFee` (`consensus/misc/eip1559/eip1559.go:55`). Reviewed the arithmetic:
+  - transition block returns `GasTreeInitialBaseFee` directly (`:61`); London-init is correctly
+    skipped when GasTree is already active (`:66`); the EIP-1559 up/down algorithm is the
+    standard geth one (big.Int, no overflow; decrease `num ≤ parentBaseFee` so no underflow).
+  - The bespoke part is a **minimum base-fee floor** (non-standard for Ethereum, which lets
+    base fee decay to 0): enforced on the decrease path (`:101–108`) — `GasTreeInitialBaseFee`
+    post-fork, `InitialBaseFee` pre-fork — and the floor selector (`IsGasTreeFork(parent.Number)`)
+    is consistent with the transition selector. Floor is maintained across the unchanged/increase
+    paths (those only hold or raise the fee). **Verdict: correct; an economic-policy floor, not a
+    security issue.** (Base-fee *burning* vs. routing is in the inherited state-transition layer,
+    out of this fork's scope.)
+- **CanPraTree** — named in `README.md` as a supported hardfork but **has no implementation in
+  this version** (no `CanPra*` references anywhere in the Go source). **documentation/code drift
+  (Bucket 4):** the README advertises a fork the code doesn't yet contain — harmless but worth
+  aligning (it's likely planned). **not present.**
+
+**Pass-3 verdict:** the custom hardforks are clean — RewardTree and GasTree are correct,
+bounded parameter-switch forks; CanPraTree is unimplemented (README drift only). Nothing here
+changes the standing conclusion: the only items worth fixing remain **§6-B** and **§6-C**.
+
 ## Responsible-disclosure note
 
 Items **§6-B and §6-C together describe a *latent* consensus-robustness concern** (swallowed
