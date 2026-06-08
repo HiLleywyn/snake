@@ -88,6 +88,15 @@ network data verified before it touches persistent state.*
 | [README.md](state-sync/README.md) | The sync threat model + the verify-before-persist lens |
 | [AUDIT-STATE-SYNC-SWEEP.md](state-sync/AUDIT-STATE-SYNC-SWEEP.md) | The sweep — geth snap sync (S1, the proven end), then reth/erigon, beacon checkpoint, Cosmos/CometBFT, Solana/Bitcoin snapshots |
 
+## 🧩 consensus/ — the agreement boundary (fork choice · EL↔CL · equivocation)
+The rules by which honest nodes converge on *one* canonical chain despite adversarial validators/peers.
+Threat model: **safety violation / reorg / liveness stall / unjust slashing / EL↔CL split.** Lens: *does the
+code enforce exactly the safety assumption, and can one actor move fork choice beyond their stake.*
+| File | What it is |
+|---|---|
+| [README.md](consensus/README.md) | The consensus-safety threat model + the agreement-layer lens |
+| [AUDIT-CONSENSUS-SWEEP.md](consensus/AUDIT-CONSENSUS-SWEEP.md) | The sweep — engine API EL↔CL seam (C1), then ETH fork choice, CometBFT, Solana/DAG |
+
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
 |---|---|
