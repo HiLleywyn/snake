@@ -239,6 +239,43 @@ cryptography. **No finding;** the trust is named — source consensus + proof so
 
 ---
 
+## B6. OptimismPortal2 — native rollup bridge (fault-proof-gated); the canonical L1↔L2 seam; trust = the proof system + Security Council
+**Target:** `ethereum-optimism/optimism`, `packages/contracts-bedrock/src/L1/OptimismPortal2.sol`. The
+**native rollup bridge** — the canonical L1↔L2 withdrawal path every OP-stack chain actually uses, and the
+real-world shape of the trust-minimized end (cf. the existing `../chains/AUDIT-OPTIMISM-FRAUD-PROOF.md`).
+**Result: the withdrawal is gated by the chain's own fault-proof system + a maturity delay + a Security
+Council backstop; the contract is clean; the trust is the dispute-game system and the Guardian.**
+
+**Trust model:** a withdrawal is authorized only against an **L2 output root that a dispute game (fault
+proof) has resolved as valid**, after a **7-day proof-maturity delay**, with a **Security Council Guardian**
+able to pause and to blacklist bad games. Conservation is **lock-release** (ETH locked in the `ETHLockbox`
+on deposit, released on withdrawal — no mint).
+
+**Two-phase verification (prove, then finalize — both gated):**
+- **`proveWithdrawalTransaction` (`:368`):** not paused (`:377`); safe target (`:380`); the dispute game is
+  **Proper** (factory-registered, not blacklisted — `isGameProper :393`), was the **respected game type when
+  created** (`:398`), and **has not resolved `CHALLENGER_WINS`** (`:403`); the game's `rootClaim` must equal
+  `Hashing.hashOutputRootProof(_outputRootProof)` (`:426` — binds the L2 state root); then a **Merkle-Patricia
+  proof** that the withdrawal hash lives in the `L2ToL1MessagePasser` storage at that proven root (`:436+`).
+- **`checkWithdrawal` (`:620`, gate before finalize):** **not already finalized** (replay guard, `:626`);
+  **proven** (`timestamp != 0`, `:633`); proven *after* game creation (`:641`); **`PROOF_MATURITY_DELAY_SECONDS`
+  elapsed** (`:646` — the 7-day challenge window); and **`anchorStateRegistry.isGameClaimValid(game)`** (`:651`)
+  — the game must be respected, past the finality delay, and not blacklisted. `finalizedWithdrawals[hash] = true`
+  on completion (one-time).
+
+**Verdict: a clean, defense-in-depth native bridge** — the authorizing root must survive the fault-proof
+game *and* a 7-day window, the output-root proof binds the L2 state, the withdrawal is MPT-proven into L2
+storage, replay is guarded at both prove and finalize, and a compromised/buggy proof can be paused and the
+game blacklisted. **Residual (the irreducible trust):** (1) the **fault-proof / dispute-game system** —
+the same **1-of-N honest challenger within the 7-day window** assumption as the optimistic model (B3), but
+over the rollup's *own* state; (2) the **Security Council Guardian** — pause + blacklist + the backstop if
+the proof system itself fails (the governance ceiling, identical in spirit to B5's vkey guardian). **No
+finding;** the trust is named — the dispute-game system + the Security Council. This is B5's lesson in its
+production form: the proof minimizes the *committee*, and a governance key (here a Council, there a vkey
+owner) remains as the backstop that can change or halt the proof machinery.
+
+---
+
 ## Sweep status (running)
 | # | Bridge | Model | Result |
 |---|---|---|---|
@@ -247,6 +284,7 @@ cryptography. **No finding;** the trust is named — source consensus + proof so
 | B3 | Across v3 | optimistic root-bundle + intent-fill | clean, well-bonded; trust = 1 honest disputer in 2h + bond size + UMA |
 | B4 | Axelar | weighted PoS validator set (separate chain) | clean, hardened multisig; trust = the staked set (≥threshold weight) |
 | B5 | SP1 Helios | zk light client (native proof) | trust-minimized; trust = source consensus + proof soundness + vkey guardian |
+| B6 | OptimismPortal2 | native rollup bridge (fault-proof-gated) | clean, defense-in-depth; trust = the dispute-game system + Security Council |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
 **all five**, the on-chain *code* is clean — the verification predicate is sound, replay is guarded,
@@ -266,7 +304,15 @@ contract bug."** Every nine-figure bridge hack was either a *contract* bug in th
 2022 signature bypass, Nomad 2022 zero-root) — the class these five have each explicitly guarded — **or** a
 *trust-root* compromise (Ronin 5/9 keys, Harmony 2/5) — the residual that no amount of clean code removes.
 The lens earns its keep by putting **"who authorizes the mint"** first: the contract read tells you the
-code is clean; the *answer to that question* tells you what you're actually trusting. **Five bridges, five
-clean contracts, five named-and-sized residuals; no finding.** Next candidates (to round out the taxonomy):
-a **native rollup bridge** (trust = the rollup's own proof system, governance-gated withdrawals) and a
-**HTLC** path with readable source (the conserve-by-construction end, cf. the Meson note).
+code is clean; the *answer to that question* tells you what you're actually trusting. **Six bridges, six
+clean contracts, six named-and-sized residuals; no finding.**
+
+**The single sentence the whole sweep proves:** *across all six models, the contract is never the weak
+link — the trust root is,* and going down the taxonomy you don't remove the trust, you only make it **less
+human** (committee → staked set → optimistic watcher → proof) until, at the trust-minimized end (B5/B6),
+the *only* residual left is a **governance key** — a vkey owner or a Security Council — that can change or
+halt the very proof machinery the security rests on. **Cryptography moves the trust; it never deletes it.**
+That is the §4f settlement-seam spectrum and the governance-ceiling coordinate, measured on six live
+bridges. The remaining open candidate (the conserve-by-construction end) is an **HTLC** path with readable
+source — the one model with *no* mint authority at all (cf. the Meson note); worth a contract-level read if
+a public HTLC implementation surfaces.
