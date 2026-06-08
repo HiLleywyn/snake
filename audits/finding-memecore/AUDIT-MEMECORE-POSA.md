@@ -390,3 +390,33 @@ module) and **canonical everywhere it matters except the one reward-call consump
 sorts and consensus-enforces at the epoch boundary but skips at the call. The corpus's single finding
 stands, now maximally precise: **one missed re-sort at one consumption site, in an engine that otherwise
 sorts and verifies the same set correctly.** No further finding.
+
+---
+
+## Pass 7 — re-audit with skeptical fresh eyes (the "sometimes you're wrong, look again" pass)
+
+After the alt_bn128 episode (where a one-line summary of *another* codebase turned out to invert the truth on a
+deep re-read — `../crypto-primitives/`), the finding itself was re-opened from source with the assumption that
+it might be **wrong**, and both load-bearing claims were re-traced in the actual current client
+(`consensus/posa/contract.go`, `settleRewardsAndUpdateValidators`):
+
+1. **Unsorted validator list — re-confirmed.** `validatorList := make([]common.Address, 0); for validator :=
+   range validators { validatorList = append(validatorList, validator) }` (`:93-96`) builds the list by
+   **iterating a Go `map[common.Address]struct{}`** (randomized iteration order), and it is passed **directly**
+   to `rewardABI.Pack(rewardMethodSet, signer, validatorList)` (`:106`) — **no `sort.Slice` anywhere between
+   the loop and the Pack.** The order in which validators are handed to the reward contract is therefore
+   non-deterministic across nodes.
+2. **Swallowed system-call error — re-confirmed, and this is the spot that most deserved a second look.** The
+   reward call `ret, leftOverGas, err := vmenv.Call(..., msg.GasLimit /* 50_000_000 */, ...)` (`:124`) is
+   followed by an `if err != nil` (`:127`) — but that check is **nested inside `if p.enableEventLogging`**
+   (`:126`), and even when reached it only `log.Error`s; the `err` is **never returned**. The function then
+   runs **`state.Finalise(true)` (`:160`) and `return nil` (`:161`) unconditionally.** So a reward call that
+   reverts or hits the 50M-gas edge differently on different nodes (because the validator order differs) is
+   **swallowed**, the block is finalized anyway, and the function reports success.
+
+**Verdict of the re-audit: the finding stands, verified from the current source, not from prior passes.** The
+two ingredients of a latent consensus split — *non-deterministic input to a metered system call* + *the error
+of that call discarded with unconditional finalization* — are both present exactly as described. The single
+most-scrutinized claim in the corpus was re-opened on the explicit premise that it might be wrong, and reading
+the real code confirmed it. The fix is unchanged: **sort `validatorList` before the Pack, and propagate the
+`vmenv.Call` error (return it) instead of swallowing it** — both small, both hardfork-gated.
