@@ -334,3 +334,89 @@ with rounding) would **brick consensus** (every block forks producer-vs-verifier
 the missing client-side guarantee at zero cost: **sort `validatorList`** (parlia does) **and propagate
 the call error.** Current status: **not live, conclusively latent**; the value of fixing it is removing
 a landmine under any future reward-contract upgrade, not patching an active exploit.
+
+## Addendum — Pass 6: the rest of the consensus delta (full pass for the team) — clean; the finding sharpened
+
+After the disclosure, a full pass over MemeCore's remaining consensus surfaces (turning "one finding +
+fix" into a complete review). Two honest corrections to the earlier residual list, and a sharpening of
+the finding itself.
+
+### Correction: surfaces I'd flagged that **don't exist** in MemeCore
+- **No BLS fast-finality / `votepool` / vote-attestation.** MemeCore's PoSA has no `consensus/posa`
+  vote pool or BLS aggregation (`grep`: none) — that's a **BSC parlia-v2** feature, not present here.
+  MemeCore is a simpler **clique/parlia-v1-style** engine (block-sealing + snapshot + the system-call
+  reward). So there is no >2/3-stake-QC surface to audit; the earlier "votepool/BLS" residual was
+  mis-attributed from BSC. Removed.
+- **No `feynman`/`stakehub` staking module.** No on-chain staking delta (`grep`: none); validators are
+  sourced from the system contract (v1-style), not an in-protocol staking module. The earlier
+  "stakehub/feynman" residual also doesn't apply. Removed.
+  *(This is the recompute-don't-trust discipline applied to my own notes: the BSC-derived residual list
+  didn't survive contact with MemeCore's actual, smaller surface.)*
+
+### The epoch validator-set transition is canonical — and consensus-*enforces* the sort
+This is the important part, because it sits **right next to the bug** and makes the finding precise:
+- **`verifyValidators` (`posa.go:436-454`):** at each epoch boundary it fetches the validators from the
+  contract, **`sort.Sort(validatorsAscending(validators))` (`:445`)**, serializes them, and requires
+  **`header.Extra[vanity:suffix] == sorted-signers`** or `errMismatchingCheckpointSigners` (`:451`). So
+  the checkpoint validator set carried in the header is **consensus-enforced to be the canonically
+  sorted set** — every node rejects a header whose validator bytes aren't sorted.
+- **`prepareValidators` (`:639-648`):** the producer builds `header.Extra` from the *same*
+  `sort.Sort(validatorsAscending)` output — symmetric with verify.
+- **`snapshot.apply` checkpoint (`snapshot.go:144-152`):** at the epoch boundary it **replaces
+  `snap.Signers`** by parsing that just-verified, canonically-sorted `header.Extra`.
+
+**Consequence:** `snap.Signers` (the validator-set map) has **identical contents on every node**, derived
+from sorted, consensus-checked bytes. The validator *set* is fully deterministic.
+
+### The finding, sharpened
+MemeCore **already applies the exact canonicalization the fix needs** — twice
+(`verifyValidators` + `prepareValidators`), and it's even **consensus-enforced** (`header.Extra` must be
+sorted). The lone defect is that `settleRewardsAndUpdateValidators` (`contract.go`) consumes the
+resulting `snap.Signers` **map** by ranging it **without re-applying that sort** before packing it as the
+ordered `timedTask(signer, validatorList)` argument. So this is not "they don't sort" — they sort at the
+epoch boundary and consensus-check it; they missed re-sorting at the *one* consumption site where the set
+becomes an ordered call argument. The fix is literally the canonicalization they already do:
+`sort.Sort(validatorsAscending(validatorList))` (or `bytes.Compare`) before `rewardABI.Pack(...)`, plus
+propagating the call error. (Cf. §6-B/§6-C and Pass 5.)
+
+### Remaining surface (clean / named)
+- **Seal cadence / anti-domination** (`verifySeal`, in-turn difficulty, `errRecentlySigned` with
+  `len(Signers)/2+1`) — standard clique, reviewed in Pass 2, **clean**.
+- **The two system contracts** (`0x…0001` reward / `0x…0002` validatorSet) — closed/on-chain; the
+  irreducible trust (and the upgrade authority is the governance ceiling). Unchanged.
+
+**Pass-6 verdict:** MemeCore's consensus delta is **smaller than BSC's** (no BLS finality, no staking
+module) and **canonical everywhere it matters except the one reward-call consumption site** — which it
+sorts and consensus-enforces at the epoch boundary but skips at the call. The corpus's single finding
+stands, now maximally precise: **one missed re-sort at one consumption site, in an engine that otherwise
+sorts and verifies the same set correctly.** No further finding.
+
+---
+
+## Pass 7 — re-audit with skeptical fresh eyes (the "sometimes you're wrong, look again" pass)
+
+After the alt_bn128 episode (where a one-line summary of *another* codebase turned out to invert the truth on a
+deep re-read — `../crypto-primitives/`), the finding itself was re-opened from source with the assumption that
+it might be **wrong**, and both load-bearing claims were re-traced in the actual current client
+(`consensus/posa/contract.go`, `settleRewardsAndUpdateValidators`):
+
+1. **Unsorted validator list — re-confirmed.** `validatorList := make([]common.Address, 0); for validator :=
+   range validators { validatorList = append(validatorList, validator) }` (`:93-96`) builds the list by
+   **iterating a Go `map[common.Address]struct{}`** (randomized iteration order), and it is passed **directly**
+   to `rewardABI.Pack(rewardMethodSet, signer, validatorList)` (`:106`) — **no `sort.Slice` anywhere between
+   the loop and the Pack.** The order in which validators are handed to the reward contract is therefore
+   non-deterministic across nodes.
+2. **Swallowed system-call error — re-confirmed, and this is the spot that most deserved a second look.** The
+   reward call `ret, leftOverGas, err := vmenv.Call(..., msg.GasLimit /* 50_000_000 */, ...)` (`:124`) is
+   followed by an `if err != nil` (`:127`) — but that check is **nested inside `if p.enableEventLogging`**
+   (`:126`), and even when reached it only `log.Error`s; the `err` is **never returned**. The function then
+   runs **`state.Finalise(true)` (`:160`) and `return nil` (`:161`) unconditionally.** So a reward call that
+   reverts or hits the 50M-gas edge differently on different nodes (because the validator order differs) is
+   **swallowed**, the block is finalized anyway, and the function reports success.
+
+**Verdict of the re-audit: the finding stands, verified from the current source, not from prior passes.** The
+two ingredients of a latent consensus split — *non-deterministic input to a metered system call* + *the error
+of that call discarded with unconditional finalization* — are both present exactly as described. The single
+most-scrutinized claim in the corpus was re-opened on the explicit premise that it might be wrong, and reading
+the real code confirmed it. The fix is unchanged: **sort `validatorList` before the Pack, and propagate the
+`vmenv.Call` error (return it) instead of swallowing it** — both small, both hardfork-gated.
