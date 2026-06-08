@@ -78,6 +78,16 @@ lens: **who authorizes the mint, and what does the mint check.**
 | [AUDIT-HYPERLIQUID-BRIDGE.md](bridges/AUDIT-HYPERLIQUID-BRIDGE.md) | Hyperliquid Bridge2 — validator-multisig withdrawal |
 | [AUDIT-IBC-TRANSFER.md](bridges/AUDIT-IBC-TRANSFER.md) | IBC ics20 — light-client native-proof seam |
 
+## 🔄 state-sync/ — the bootstrap seam (snapshot / checkpoint / range sync)
+Where a node trusts a *summary of its own chain's history* served by untrusted peers, often written toward
+persistent storage before full verification. Threat model: a malicious peer driving an honest node to
+**diverge / accept-invalid / corrupt-storage / stall.** Two questions: *what's the trust anchor* and *is
+network data verified before it touches persistent state.*
+| File | What it is |
+|---|---|
+| [README.md](state-sync/README.md) | The sync threat model + the verify-before-persist lens |
+| [AUDIT-STATE-SYNC-SWEEP.md](state-sync/AUDIT-STATE-SYNC-SWEEP.md) | The sweep — geth snap sync (S1, the proven end), then reth/erigon, beacon checkpoint, Cosmos/CometBFT, Solana/Bitcoin snapshots |
+
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
 |---|---|
