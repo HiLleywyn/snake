@@ -16,6 +16,7 @@ extends the §4f spectrum (`../methodology/AUDIT-CAPSTONE.md`).
 ### Bridge trust-model taxonomy (ranked by who you must trust, best → worst)
 | Model | Trust | Examples (in this sweep) |
 |---|---|---|
+| **First-party issuer burn-and-mint** (trust-minimal *relative to the asset*) | the asset's own issuer (whom you already trust by holding it) — **zero marginal trust** | **Circle CCTP (USDC)** |
 | **Light client / native proof** | cryptographic (verify the source chain's consensus/proof) | IBC, zkBridge, native rollup bridges |
 | **HTLC atomic swap** | hash-lock + timelock (no free-mint authority) | Meson core / Express |
 | **PoS validator set / separate chain** | >2/3 stake of a staked set | Axelar |
@@ -378,6 +379,56 @@ DL behavior; characterization, not disclosure.)
 
 ---
 
+## B9. Circle CCTP — first-party issuer burn-and-mint; the model that adds **zero marginal trust** (a new axis for the lens)
+**Target:** `circlefin/evm-cctp-contracts`, `MessageTransmitter.sol` + `roles/Attestable.sol` +
+`TokenMessenger.sol`/`TokenMinter.sol`. CCTP is how USDC moves natively across chains, and it forces a
+**refinement of the whole lens**: the question isn't only *who authorizes the mint* — it's **does the bridge
+add a trust root beyond the one you already hold?** For CCTP the answer is **no**, and that makes it a
+distinct (and, for its asset, near-optimal) model despite being fully centralized.
+
+**Trust model:** **Circle — the issuer of USDC itself — is the attester.** USDC is `burn`ed on the source
+(`TokenMessenger.depositForBurn`) and `mint`ed on the destination (`TokenMinter.mint`) when a message
+signed by Circle's off-chain **Attestation Service** arrives. The attestation is an **m-of-n multisig** of
+Circle-operated attester keys (`signatureThreshold` of `enabledAttesters`, **initialized to 1**,
+`Attestable.sol:89-90`).
+
+**Verification (`receiveMessage :250` → `_verifyAttestationSignatures`):** exactly `signatureThreshold`
+signatures, each over `keccak256(message)`, each from a **distinct enabled attester in strictly increasing
+address order** (`_recoveredAttester > _latestAttesterAddress` → dedupe + bars `address(0)`;
+`isEnabledAttester` membership). Then: **destination domain == localDomain** (`:263`), optional
+**destinationCaller binding** (`:269` — a message can be locked to a specific redeemer), version, and a
+**nonce replay guard** `require(usedNonces[sourceAndNonce] == 0)` then set to 1 (`:284-286`). Then dispatches
+to the recipient's `handleReceiveMessage` (→ `TokenMinter.mint`).
+
+**Conservation — the strong part:** burn-on-source **== mint-on-dest, 1:1, by the issuer's own authority.**
+There is **no wrapped/canonical divergence** at all: it's the *same* canonical USDC on both sides, destroyed
+on one chain and recreated on another by the entity that issues it. Most bridges have to *prove* mint==lock;
+CCTP doesn't need to, because the minter and the issuer are the same party — conservation is true by issuer
+fiat, and Circle can't "over-mint" relative to itself without simply… issuing USDC, which it can already do
+anywhere.
+
+**The refinement to the lens — "marginal trust":** every *wrapped-asset* bridge (lock USDC in a vault, mint
+a bridge-issued wrapped-USDC on the far side) adds a **new trust root** — the bridge operator — *on top of*
+Circle. If that operator is compromised, the wrapped token de-pegs even though Circle did nothing wrong.
+CCTP adds **none**: if you already hold USDC, you already trust Circle to honor it (freeze, blacklist, mint,
+redeem — Circle can already do all of it on the base asset). So bridging USDC via CCTP is **strictly less
+trust** than bridging it through any third-party bridge. **This is why "who authorizes the mint" needs the
+follow-up "…and is that anyone you weren't already trusting?"** For a first-party issuer bridge the marginal
+trust is zero; for a wrapped bridge it's the whole operator.
+
+**Verdict: clean verification, sound replay, and — uniquely — zero marginal trust for its asset.** **No
+finding.** **Residual (the irreducible trust):** (1) **Circle, completely** — `attesterManager` sets the
+attesters and `signatureThreshold` (default **1-of-n**, so a *single* attester-key compromise could mint
+USDC on a destination chain until Circle rotates/blacklists), `owner` pauses, `tokenController` sets mint
+caps and which tokens are mintable. It is total centralization — **but it is the *same* centralization you
+accept the moment you hold USDC**, which is the entire point. The defensive note (constructive mirror):
+**prefer first-party issuer bridges (CCTP) over wrapped bridges for the issuer's own asset** — they collapse
+two trust roots into the one you can't avoid anyway — and **raise the attester `signatureThreshold` above 1**
+so no single key mints. The taxonomy gains a top-tier row that is *centralized yet trust-minimal*, because
+trust-minimality is **relative to what you already hold**, not absolute.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -420,6 +471,7 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B6 | OptimismPortal2 | native rollup bridge (fault-proof-gated) | clean, defense-in-depth; trust = the dispute-game system + Security Council |
 | B7 | Synapse | off-chain MPC + on-chain **bare role-check** (weakest) | contract correct, but **no on-chain verification**; trust = off-chain key + proxy admin (Multichain class) |
 | B8 | Socket DL (Bungee) | n-of-n attestation **or** optimistic timeout+veto | sound; floor = **1-of-N watcher veto + timeout**, not the headline n-of-n |
+| B9 | Circle CCTP | first-party issuer burn-and-mint | clean; **zero marginal trust** for USDC (issuer == attester); residual = Circle, default 1-of-n |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
