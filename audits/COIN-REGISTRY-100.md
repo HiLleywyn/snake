@@ -39,7 +39,7 @@ validator-set, bridge seam, or issuer named per row.
 | 8 | Dogecoin (DOGE) | L1 PoW | UTXO (10k/block tail emission, no cap) | Scrypt PoW, **merge-mined (AuxPoW) with Litecoin** | LTC Scrypt hashrate + pool concentration (cheap to 51% standalone) | rapid |
 | 9 | TON | L1 PoS sharded | account (sharded) | BFT (catchain) + infinite sharding | the validator set; sharding seams | deep |
 | 10 | Cardano (ADA) | L1 PoS | eUTXO (PoV value conservation) | Ouroboros Praos (VRF) | >50% stake; the VRF/epoch params | deep + sweep (V3) |
-| 11 | TRON (TRX) | L1 DPoS | account | DPoS (27 Super Representatives) | the 27 SRs + Justin Sun governance | _pending_ |
+| 11 | TRON (TRX) | L1 DPoS | account (no cap, resource-burn floor, net-deflationary) | DPoS (≥70% of **27 Super Representatives**) | **validator centralization — very small N (27)** + the electing cartel/Foundation | rapid ⚠ |
 | 12 | Avalanche (AVAX) | L1 (3-chain) | UTXO (AVM) | Avalanche (repeated subsampled vote) | >80% stake (the safety threshold) | deep |
 | 13 | Chainlink (LINK) | oracle (on Eth) | n/a (ERC-20) | n/a | the OCR DON + the per-feed node set | sweep (validator-ops, CCIP) |
 | 14 | Shiba Inu (SHIB) | ERC-20 (+ Shibarium L2) | account (host); Shibarium PoS | host chain; Shibarium PoA/PoS | the host chain; Shibarium validators | _pending_ |
@@ -62,6 +62,25 @@ validator-set, bridge seam, or issuer named per row.
 | 31 | Conflux (CFX) | L1 PoW+PoS | account/state | **Tree-Graph (GHAST) DAG PoW + PoS finality** | the PoS finality validator set + foundation (trusted finality gadget) | rapid |
 | 32 | Neo (N3) | L1 BFT | account, dual-token (NEO 100M fixed / GAS) | **dBFT** (≤⅓ Byzantine of ~7 elected nodes) | the small elected consensus-node set + foundation (permissioned-leaning) | rapid |
 | 33 | Ravencoin (RVN) | L1 PoW + assets | UTXO + native asset layer (21B; RVN-burn to issue) | KawPoW (ProgPoW) PoW | **rentable GPU hashrate** — *past asset-inflation floor break + real 51% double-spends (2020)* | rapid ⚠ |
+| 34 | Sky / MakerDAO (DAI/USDS) | DeFi stablecoin (Eth) | over-collat CDP invariant (≥ liq ratio) + MKR backstop + PSM | n/a (host: Ethereum) | **governance** (collateral/oracle whitelist) + USDC/RWA concentration | rapid |
+| 35 | Aave (AAVE/GHO) | DeFi money market (Eth+L2) | per-position LTV + Safety Module | n/a | **oracle** (Chainlink) — thin-asset-listing manipulation surface | rapid |
+| 36 | Ondo (USDY/OUSG) | RWA (Eth+multichain) | **off-chain NAV** (Treasuries) — legal/custodial claim, *no on-chain floor* | n/a | **custodian / RWA-issuer** + admin freeze/seize | rapid |
+| 37 | Ethena (USDe) | synthetic-dollar (Eth) | **delta-neutral** (spot + 1:1 perp hedge) + reserve fund | n/a | **custodian / CEX counterparty** (off-exchange custody, CEX hedges) | rapid |
+| 38 | Lido (stETH) | liquid staking (Eth) | exchange-rate = staked ETH + rewards (1:1 redeemable) | n/a | **operator-set concentration + accounting oracle** | rapid |
+| 39 | Rocket Pool (rETH) | liquid staking (Eth) | rETH rate = balances; operator **RPL bond** first-loss | n/a | **oDAO oracle committee** (floor collateralized) | rapid |
+| 40 | Frax (FRAX/frxETH) | stablecoin+LST+L2 | 100% CR (now) + AMO bounds; frxETH exch-rate | n/a (+ Fraxtal L2) | **governance/AMO** (algo-stable lineage) + RWA backing | rapid |
+| 41 | dYdX v4 | perp DEX appchain | PoS 2/3 honest stake + margin/insurance fund | **CometBFT PoS** (own chain) | **validator set** (consensus *and* off-chain orderbook) + oracle | rapid |
+| 42 | PancakeSwap (CAKE) | AMM DEX (BSC+L2) | constant-product x·y=k (per-pool self-conserving) | n/a | governance multisig + BNB-chain trust; **floor sound** | rapid |
+| 43 | GMX (GMX/GLP) | oracle-perp DEX (Arb/Avax) | pool assets vs trader PnL + OI caps | n/a | **oracle** + keepers — *historically-realized manipulation (v1, 2022)* | sweep (midcap) |
+| 44 | VeChain (VET) | L1 PoA | dual-token VET→VTHO (70% gas burn) | **PoA 2.0** + BFT gadget (**101 vetted masternodes**) | **permissioned-authority centralization** (Foundation KYC whitelist) | rapid |
+| 45 | MultiversX (EGLD) | L1 sharded PoS | capped ~31.4M, sharded state + Metachain | **Secure-PoS** (BLS+VRF, >2/3 committee) | Metachain reconciliation + cross-shard atomicity | rapid |
+| 46 | Kava | L1 Cosmos | x/bank invariants; zero-inflation (K15) | Tendermint BFT (**top 100**, >2/3 stake) | small N + >1/3-halt class + IBC/oracle deps | rapid |
+| 47 | Kaia (ex-Klaytn) | L1 BFT | EVM account, fee burn, gov-set supply | **IBFT** (>2/3 of enterprise Council CNs), 1s final | **permissioned-consortium** (Governance Council + gov keys) | rapid |
+| 48 | Zilliqa (ZIL) | L1 BFT (transitioning) | capped 21B; Scilla-limited state | **Pipelined Fast-HotStuff** (was pBFT+sharding), >2/3 | **architecture-in-transition** + stake concentration | rapid |
+| 49 | Oasis (ROSE) | L1 + confidential ParaTimes | consensus account-balance + ParaTime state | CometBFT (**~120**, >2/3) | **TEE / Intel SGX root of trust** (confidentiality) — hardware residual | rapid ⚠ |
+| 50 | IOTA | L1 Move (post-Rebased) | **Move-resource ledger** (objects can't dup) | **Mysticeti DPoS** (~150, >2/3), <0.5s final | nascent permissionless set + Foundation stake (Coordinator just removed) | rapid |
+| 51 | Flare (FLR) | L1 EVM + oracles | EVM account, fee burn | Avalanche **Snowman++** PoS | **enshrined oracle/attestation** (FTSO + State Connector) — the dApp residual | rapid |
+| 52 | Waves | L1 LPoS | capped 100M (+ **USDN algo-stable** value hazard) | LPoS (Waves-NG, ~2s gadget) | stake-leader concentration + **Gravity bridge + Neutrino** (de-peg history) | rapid ⚠ |
 
 ---
 
@@ -102,7 +121,37 @@ The lens surfaced **real, historically-confirmed finding-classes** (defensive, c
 (forks of Bitcoin Core / go-ethereum) but not freshly re-read from disk — Medium confidence, and the incident-history
 flags (ETC, Ravencoin, Zcash) are the well-documented public record.*
 
-### Batches 2–4 — _in flight_
-- Batch 2: BFT/DPoS L1s (TRON, VeChain, MultiversX, Kava, Kaia, Zilliqa, Oasis, IOTA, Flare, Waves).
-- Batch 3: Eth/L2 DeFi (Sky/Maker, Aave, Ondo, Ethena, Lido, Rocket Pool, Frax, dYdX, PancakeSwap, GMX).
-- Batch 4: new L1/L2/DePIN (Bittensor, Render, Helium, The Graph, Flow, Moonbeam, Astar, Kujira, Story, Jupiter).
+### Batch 3 — Eth/L2 DeFi protocols (rows 34–43) ✅
+The trust seam in DeFi is **always one of four**, and the lens names it for each:
+- **Oracle-dominant** (the price feed *is* the security boundary): **GMX** (historically-realized v1 manipulation),
+  **Aave** (thin-asset listings are the classic attack surface). Mitigated by Chainlink + delays + caps.
+- **Governance-dominant** (admin/timelock can reconfigure collateral/params): **Maker/Sky, Frax, PancakeSwap.**
+- **Custodian-dominant** (backing is *off-chain*, no on-chain conservation proof — the **softest floors**): **Ondo**
+  (RWA NAV, legal claim), **Ethena** (delta-neutral + CEX custody). Value rests on off-chain solvency + attestation.
+- **Validator/operator-dominant:** **Lido** (operator concentration + accounting oracle), **Rocket Pool** (oDAO
+  oracle, but operator-RPL-bonded → harder floor), **dYdX v4** (its own PoS chain — validators run *both* consensus
+  and the off-chain orderbook, a double trust load).
+- **Hardest floors** (solvency holds without trusting a counterparty's balance sheet): **PancakeSwap** core AMM
+  (constant-product self-conserves), the **LSTs** (1:1 ETH redeemable). **Softest:** Ondo, Ethena.
+*Docs/knowledge-level (Medium confidence); collateral ratios/custodians change via governance — figures are as of cutoff.*
+
+### Batch 2 — BFT / DPoS / sidechain L1s (rows 11, 44–52) ✅
+The defining residual in this family is **how few, and how known, the validators are** — and where the trust
+*leaves* consensus:
+- **Smallest-N / hardest centralization:** **TRON** (27 SRs) > **VeChain** (101, KYC'd) ≈ **Kaia** (enterprise
+  Council) — finality concretely rests on a small, often identity-known set + the cartel that elects them.
+- **Trust residual lives *off-consensus* for three:** **Oasis** (Intel **SGX** hardware root — ties directly to
+  `crypto-primitives/`'s TEE-attestation residual: confidentiality depends on a vendor enclave with a real
+  side-channel CVE history), **Flare** (**enshrined oracles** — FTSO median + State-Connector attestors, the
+  `validator-ops/` oracle seam baked into the L1), **Waves** (the **Gravity bridge + USDN algo-stablecoin**
+  de-peg history — the `bridges/` + de-peg classes). Their consensus floors are fine; the exploitable trust is the
+  adjacent subsystem.
+- **Universal BFT failure mode** (Kava/Oasis/Zilliqa/IOTA/Kaia, and the whole `consensus/` sweep): **>1/3 stake →
+  liveness halt, >2/3 → safety break** — concentration of the staked/elected set is the residual, enforced
+  *exactly* (consensus sweep) but only as strong as the set's diversity.
+- **In-transition risk** highest for **Zilliqa** (consensus-engine swap) and **IOTA** (Coordinator just removed) —
+  newest code paths, least battle-testing.
+*Docs/spec-derived (Medium confidence); validator counts are active-set/cap figures that drift with governance.*
+
+### Batch 4 — new L1/L2/DePIN — _in flight_
+(Bittensor, Render, Helium, The Graph, Flow, Moonbeam, Astar, Kujira, Story, Jupiter.)

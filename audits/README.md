@@ -5,9 +5,10 @@ conservation floor / governance ceiling / equivalence), plus two dedicated bug-h
 actionable finding** (MemeCore, [`finding-memecore/`](finding-memecore/AUDIT-MEMECORE-POSA.md));
 everything else resolved to a sound conservation floor + a named residual.
 
-**Start here:** [`methodology/AUDIT-CAPSTONE.md`](methodology/AUDIT-CAPSTONE.md) (the synthesis) ·
-[`../DESIGN-PRINCIPLES.md`](../DESIGN-PRINCIPLES.md) (the constructive mirror) ·
-[`methodology/AUDIT-METHODOLOGY.md`](methodology/AUDIT-METHODOLOGY.md) (the lens itself).
+**Start here:** [`methodology/AUDIT-CAPSTONE.md`](methodology/AUDIT-CAPSTONE.md) (the synthesis, incl. §5c the
+full-stack traversal) · [`COIN-REGISTRY-100.md`](COIN-REGISTRY-100.md) (**the 100-coin registry** — every coin
+through the conservation lens + the seven-layer stack) · [`../DESIGN-PRINCIPLES.md`](../DESIGN-PRINCIPLES.md)
+(the constructive mirror) · [`methodology/AUDIT-METHODOLOGY.md`](methodology/AUDIT-METHODOLOGY.md) (the lens).
 
 ---
 
