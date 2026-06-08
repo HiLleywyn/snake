@@ -58,7 +58,7 @@ Grouped by conservation mechanism:
 **Async / sharded:** [NEAR](chains/AUDIT-NEAR-RECEIPTS.md) · [TON](chains/AUDIT-TON-BOUNCE.md)
 **Cross-chain seams:** [IBC ics20](chains/AUDIT-IBC-TRANSFER.md) ·
 [Bridges (Wormhole/LZ/Hyperlane)](chains/AUDIT-BRIDGES-SIX-BUCKET.md) ·
-[Hyperliquid Bridge2](chains/AUDIT-HYPERLIQUID-BRIDGE.md) · [Canton/Splice](chains/AUDIT-CANTON-SPLICE.md)
+[Hyperliquid Bridge2](chains/AUDIT-HYPERLIQUID-BRIDGE.md) · [Canton/Splice](chains/AUDIT-CANTON-SPLICE.md) · [Meson / Free Tunnel](chains/AUDIT-MESON-FREETUNNEL.md)
 **Storage / caller-scoped:** [Filecoin](chains/AUDIT-FILECOIN-ACTORS.md) ·
 [Stacks (post-conditions)](chains/AUDIT-STACKS-POSTCONDITIONS.md)
 **ZK / privacy chains:** [Namada MASP](chains/AUDIT-NAMADA-MASP.md) ·
