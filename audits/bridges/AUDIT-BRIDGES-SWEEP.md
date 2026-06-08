@@ -609,12 +609,14 @@ have to enforce by hand.** No findings.
   `SendCoins` (insufficient balance). Conservation is enforced by the *module beneath the bridge*, not by the
   bridge's own arithmetic.
 - **Gravity Bridge is the contrast that proves the point:** it is **not** a light client — the Cosmos side
-  **mints on a >2/3 validator *attestation*** (validators vote that they "saw" an Ethereum deposit; **no
-  on-chain proof of Ethereum consensus**), and the Ethereum side releases on a stored-valset signature
-  checkpoint (~2/3 power). Solid nonce-replay guards and post-mint supply asserts, no code defect — but its
-  Q2 answer is *"a validator signature,"* where IBC's is *"a consensus proof."* Same chain ecosystem, two
-  tiers of the taxonomy apart. (Gravity is the documented federated-attestation model; characterized, not a
-  finding.)
+  **mints on a >66% validator *attestation*** (validators vote that they "saw" an Ethereum deposit; **no
+  on-chain proof of Ethereum consensus**): `AttestationVotesPowerThreshold = 66` (`genesis.go:25` — **verified
+  myself**), `requiredPower = 66 * totalPower / 100` and `attestationPower.GT(requiredPower)`
+  (`attestation.go:105,120` — **verified**). The Ethereum side releases on a stored-valset signature checkpoint
+  with `constant_powerThreshold = 2863311530` (`Gravity.sol:71` — **verified**, = ⅔ of 2³² normalized power).
+  Solid nonce-replay guards and post-mint supply asserts, no code defect — but its Q2 answer is *"a validator
+  signature,"* where IBC's is *"a consensus proof."* Same chain ecosystem, two tiers of the taxonomy apart.
+  (Gravity is the documented federated-attestation model; characterized, not a finding.)
 
 ### 13b. Move (Sui / Aptos) — conservation is **type-enforced**; mint is unreachable without a verified threshold
 - **Sui native bridge** (Sui↔Eth) is a **stake-weighted validator committee** that auto-rotates each epoch
