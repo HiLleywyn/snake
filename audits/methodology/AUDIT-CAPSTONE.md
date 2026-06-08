@@ -456,6 +456,32 @@ fixed it, while the things I *had* verified, and the things sub-agents reported 
 every other system a sound floor + a named residual; one corrected summary and one refined one — the method
 demonstrated, and corrected, on its own work.**
 
+A second re-audit wave traced the **observe-before-sample** ordering in the two zkVMs by reading the actual
+verify *flow* (not the line-number summary): RISC Zero's `poly_mix` is gated behind the assertion that **all**
+tap-group Merkle roots are committed, with the quotient committed *after* `poly_mix` and the DEEP point after
+that (`verify/mod.rs:301-347`); SP1's `verify_shard` observes `public_values` + `main_commitment` + the chips
+(`:468-488`) **before** it calls `verify_logup_gkr`/`verify_zerocheck`, which sample `alpha`/`lambda`
+(`:304-309`). Both **confirmed** — Frozen-Heart closed, read end-to-end.
+
+**An honest accounting of what is *not* settled (because sometimes the next look reverses the last one).** The
+alt_bn128 episode is a standing reminder, so the confidence here is graded, not flat:
+- **High (re-derived from source, multiple implementations):** the alt_bn128 G2 subgroup check (3 impls), the
+  KZG/BLS subgroup+canonical checks, the wire-decoder bounds, the consensus quorum/PoLC/lockout arithmetic,
+  the Fiat-Shamir observe-before-sample (Plonky3 + RISC Zero + SP1), the sync verify-before-persist.
+- **Medium (read the relevant functions, but not every backend/edge):** the gossipsub scoring composition, the
+  full SSZ-decoder edge matrix, the recursion-circuit verifiers, the substrate-bn vs arkworks backend actually
+  compiled into each shipped client binary.
+- **Deferred by construction (a code read *cannot* settle these — they need security proofs / formal
+  verification / live differential fuzzing):** the *soundness bound* of every proof system (query count → bits,
+  FRI list-decoding radius, sumcheck error), the *cryptographic* security of each pairing/hash, and the
+  absence of an *under-constrained* gate in any large generated constraint system.
+- **"No finding" means "none found by this analysis," not proof of absence** — and the corpus contains a
+  live demonstration that this analysis can err (alt_bn128, where I read a call site instead of the function).
+  That error happened to fail *safe* (I under-credited geth); the discipline's value is precisely that it does
+  not assume the next error will. The single positive finding (MemeCore) is the most-scrutinized claim here
+  (6 passes, disclosed); it is also the one most worth re-opening with fresh eyes on any future pass — because
+  the place overconfidence hides is the conclusion you stopped re-checking.
+
 ---
 
 ## 6. Posture & disclosure summary
