@@ -116,6 +116,16 @@ and identically across clients, and is every computation bounded.*
 | [README.md](crypto-primitives/README.md) | The primitive-layer threat model (DIVERGE / FORGE / DoS / MALLEABLE) |
 | [AUDIT-CRYPTO-PRIMITIVES-SWEEP.md](crypto-primitives/AUDIT-CRYPTO-PRIMITIVES-SWEEP.md) | The sweep — geth modexp+bn256 (P1), BLS12-381+KZG (P2), reth/revm cross-client consistency (P3) |
 
+## 🔮 zk-proving/ — proving-system soundness (does the verifier accept only the truth?)
+The deepest verifier layer: the zkVMs (SP1, RISC Zero) and proof backends (Plonky3/FRI, Halo2, Groth16).
+Threat model: a malicious prover convincing an honest verifier of a **false** statement. Audits the
+*checkable* soundness properties where the real historical breaks lived — **Fiat-Shamir honesty (Frozen-Heart)
++ public-input binding** — honest about the line to deep math-soundness (a security-proof question).
+| File | What it is |
+|---|---|
+| [README.md](zk-proving/README.md) | The proving-system threat model (SOUNDNESS / FROZEN-HEART / UNDER-CONSTRAINED / INPUT-BINDING) |
+| [AUDIT-ZK-PROVING-SWEEP.md](zk-proving/AUDIT-ZK-PROVING-SWEEP.md) | The sweep — Plonky3/FRI (Z1), Halo2/Groth16 (Z2), SP1 (Z3), RISC Zero (Z4) |
+
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
 |---|---|
