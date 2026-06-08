@@ -221,6 +221,44 @@ the constructive fix for each.** The snake checks its tail at the sync seam too.
 
 ---
 
+## S6. go-ethereum RLP + devp2p decoder — bound-before-allocate, and canonical-form as a divergence defense
+**Target:** `ethereum/go-ethereum`, `p2p/rlpx/rlpx.go` + `rlp/decode.go`. The deserialization seam from the
+threat model — *untrusted network bytes decoded before any verification* — and the classic resource-exhaustion
+surface (decompression bombs, length-prefix allocation attacks). The adapted question: **is decoding bounded
+before allocation, and is it canonical (deterministic)?** **Result: both — yes; failure modes S (resource) and
+D (divergence) are defeated at the decoder, verified myself.**
+
+**Two-layer defense, correctly ordered:**
+- **devp2p frame (`rlpx.go`):** every message frame is capped at **`maxUint24` = 16 MB** (`:215, :236`). The
+  **snappy decompression bomb is defeated *before* decoding**: `snappy.DecodedLen(data)` reads the *declared*
+  decompressed size from the frame header **without decompressing**, and `if actualSize > maxUint24 → return
+  errPlainMessageTooLarge` (`:149-155`) — only *then* is the output buffer grown and `snappy.Decode` called
+  (`:156-157`). A tiny compressed payload claiming gigabytes of output is rejected before a single large byte
+  is allocated. (Plus `baseProtocolMaxMsgSize` per-protocol caps in `transport.go`.)
+- **RLP decoder (`decode.go`):** the stream is created with `NewStream(r, inputLimit)` so `s.remaining` is
+  bounded by the actual message size, and **`Kind()` validates every length prefix against the remaining input
+  *before* the reader allocates**: `else if s.limited && s.size > s.remaining → ErrValueTooLarge` (`:1031`,
+  *"value size exceeds available input length"*) — and for list elements `inList && s.size > listLimit →
+  ErrElemTooLarge` (`:1029`). So a string/list header claiming a 4 GB length inside a 100-byte message is
+  rejected **before** the `make([]byte, size)` path (`:876`) ever runs. No attacker-controlled allocation.
+
+**The subtle one — canonical form is a *divergence* defense.** `readKind` rejects non-minimal length
+encodings (`size < 56 → ErrCanonSize`, `:1073/:1085`), the integer paths reject leading zeros / non-minimal
+single-byte forms (`ErrCanonInt`, `ErrCanonSize`, `:871/:883`), and `uint` rejects overflow (`size >
+maxbits/8 → errUintOverflow`, `:755`). This isn't just anti-malleability: it guarantees **two honest nodes
+decode the same wire bytes into the same value or both reject** — closing a quiet **D (divergence)** vector
+where a permissive decoder could let a non-canonical encoding mean different things on different clients (the
+sync-layer cousin of the MemeCore determinism lesson).
+
+**Failure modes:** **S (resource exhaustion): defeated** — 16 MB frame cap + pre-decode bomb check +
+bound-before-allocate; an attacker cannot force a large allocation or a decompression blowup. **D
+(divergence): defeated** — canonical-encoding enforcement. **A (accept-invalid): out of scope here by design**
+— the decoder is *structural* (it produces a well-formed typed value); *semantic* validation (signatures,
+state, gas) is downstream, which is the correct separation. **No finding.** This is "bound the claimed size
+against the real input before you allocate, and insist on one canonical encoding" — the deserialization analog
+of S1's verify-before-persist, and the bar for every other wire decoder in this sub-sweep (SSZ, the eth/68 and
+snap/1 handlers, txpool ingress — landing next).
+
 ## Sweep status (running)
 | # | Target | Layer | (Q2) verify-before-persist? | Worst reachable failure mode |
 |---|---|---|---|---|
@@ -229,6 +267,7 @@ the constructive fix for each.** The snake checks its tail at the sync seam too.
 | S3 | Lighthouse · Prysm | beacon checkpoint sync | Lighthouse **bidirectional**; Prysm **body-root only / none on file path** | A/D operator-bounded; **Prysm = verification-strength gap** |
 | S4 | CometBFT+SDK · Substrate warp | chunked state-sync | **yes** — final apphash gate (`syncer.go:504`) / per-chunk range proof (`state_sync.rs:276`) | only **S**; D/A/C safe (1 decompress-cap note) |
 | S5 | Reth · Erigon | EVM exec sync | Reth **recompute, commit-gated**; Erigon exec recompute+unwind, **snapshot = registry trust** | Reth D/A/C blocked; **Erigon snapshot = anchor outlier** |
+| S6 | go-ethereum RLP + devp2p | wire deserialization | **yes** — frame ≤16MB, snappy `DecodedLen` bomb check, RLP `size > remaining → ErrValueTooLarge` before alloc | **S** defeated (bounded alloc); **D** defeated (canonical form) |
 
 **Result:** 10 implementations, 4 ecosystems — **state sync is the *proven* end and fails safe** (D/A/C forced
 off the table; only S + resource-hardening remain). Two named outliers: **Erigon's snapshot-import registry
