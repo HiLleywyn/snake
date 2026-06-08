@@ -859,6 +859,149 @@ the whole system rests on, and NEAR gets it right.
 
 ---
 
+## B17. Intent / solver settlement (UniswapX, CoW) — trust *inverted*: the user's own signature is the authorizer
+**Target:** `Uniswap/UniswapX` (`reactors/BaseReactor.sol`, `ExclusiveDutchOrderReactor`, `V2DutchOrderReactor`,
+`lib/{DutchDecayLib,ExclusivityLib,Permit2Lib}.sol`) + `cowprotocol/contracts` (`GPv2Settlement.sol`,
+`mixins/GPv2Signing.sol`). A **novel inversion** of everything above: instead of trusting an *authorizer* to
+mint/release correctly, the **user signs exactly the outcome they will accept**, and settlement is only valid
+if it honors that signature. Trust flows *from* the user, not *to* a committee. **Result: both make
+under-filling structurally impossible; the trust is the user's own EIP-712 signature + atomic settlement.**
+
+**The model:** a user signs an *intent* (an order: sell X, receive ≥ Y to recipient R, before deadline,
+nonce N). Competing **solvers/fillers** race to satisfy it. The settlement contract verifies the fill
+delivers what was signed — and **the solver's only freedom is to give the user *more* (surplus), never less.**
+
+**UniswapX — permissionless fill, structurally bounded (verified myself):**
+- Fill is **permissionless** (anyone can call `execute`). Under-filling is impossible because `_fill` loops
+  every signed output and does **`output.token.transferFill(output.recipient, output.amount)`**
+  (`BaseReactor.sol:115` — **verified**), where `recipient` and `amount` come from the *resolved signed order*.
+  If the filler doesn't deliver the full amount to the signed recipient, the transfer reverts and **the whole
+  `execute` reverts atomically — the user's input never leaves their wallet.**
+- The min-output is the **Dutch-decay floor**: `decay()` clamps to the signed `endAmount` and requires
+  `startAmount >= endAmount`. EIP-712 order verification + input pull + **nonce replay** are delegated to
+  **Permit2** (`permitWitnessTransferFrom` with the order hash as witness) — Permit2 marks the `(swapper,
+  nonce)` bit used. The V2 **cosigner** can *only improve* the price (input override `<= base`, each output
+  override `>= base`), checked by `ecrecover`.
+- Trust root = Permit2 + the swapper's own signed floor/recipient. **No solver allowlist, reactors immutable,
+  no pause.**
+
+**CoW — permissioned solvers, but the user is still protected by their signature (verified myself):**
+- `settle` is `onlySolver` (a curated allowlist), **but a malicious solver still can't underpay**: the order
+  **owner is *recovered from the signature*** and the **receiver is taken from the signed order** (not passed
+  in), so output can't be redirected; and the limit price is enforced **per trade against the signed
+  amounts**: **`order.sellAmount.mul(sellPrice) >= order.buyAmount.mul(buyPrice)`** (`GPv2Settlement.sol:369`
+  — **verified**), with executed buy rounded in the user's favor. Surplus is allowed (the design); the user
+  always gets ≥ their signed limit.
+- **Replay** = `filledAmount[orderUid]` where `orderUid = orderDigest ‖ owner ‖ validTo` (`:217,:393` —
+  **verified**), bound to the exact signed order; `validTo >= block.timestamp` expiry; owner can
+  `invalidateOrder`. Solver interactions are forbidden from touching the vault relayer (no abusing user
+  approvals).
+- Trust root = the curated solver set (an `onlyOwner`-managed, upgradeable allowlist) **for liveness/MEV**,
+  but **never for the user's price** — that's signature-enforced.
+
+**Verdict: a clean, elegant inversion — the authorizer is the user.** **No finding.** **Residual:** for
+UniswapX, essentially only **Permit2** + whatever the user signed (if they sign a bad `endAmount`, that's on
+them) — a remarkably small surface. For CoW, the **solver allowlist + upgradeable authenticator** are the
+trust concentration, but they bound *liveness and surplus capture*, **not** the user's guaranteed minimum.
+The lesson it adds to the taxonomy: **not every cross-party value transfer needs an authorizer you trust to
+mint — if the protected party can *sign their own acceptance condition* and settlement is atomic, trust
+collapses onto their signature.** This is the same conserve-by-construction spirit as HTLC (B12): the safety
+isn't an invariant someone checks, it's a condition the beneficiary themselves set and the EVM enforces
+atomically. (deBridge DLN — the cross-chain intent variant — rides the deBridge messaging gate, a trusted
+m-of-n oracle multisig; its actual taker-reimbursement contracts are in a separate repo not read here, so the
+"taker repaid only against a real destination fill" question stays open.)
+
+## B18. ZK coprocessors (Axiom, Relic, Herodotus, Brevis) — the trustless oracle, and the *proven-vs-relayed block hash* axis
+**Target:** `axiom-crypto/axiom-v2-contracts`, `relic-protocol/relic-contracts`, `HerodotusDev/herodotus-evm`,
+`brevis-network/contracts`. A **ZK coprocessor** lets a contract trustlessly read *historical/cross-chain*
+state (a storage slot, a receipt) proven by a SNARK instead of an oracle's word. **Result: the SNARK math is
+clean in all four; the entire trust question reduces to one thing — is the result bound to a block hash that
+was itself *proven/anchored*, or one *supplied by a trusted relayer*? — and it's the same axis the Bitcoin
+and Cosmos work already found.**
+
+**The one question that separates them:** a storage proof says "slot S had value V at block hash H." That's
+only as trustworthy as **where H comes from.** Four answers, two tiers:
+- **Proven/anchored (trust-minimized):**
+  - **Axiom V2** — the proven block-hash chain is anchored to a *real EVM block hash*:
+    **`if (blockhash(endBlockNumber) != endHash) revert BlockHashIncorrect()`** (`AxiomV2Core.sol:126`,
+    recency-gated ≤256), accumulated into a PMMR; the query SNARK's `blockhashMmrKeccak` public input is
+    checked against that Core snapshot (`AxiomV2Query.sol:714-724`). **The source hash is itself proven**,
+    never relayer-supplied. Verifier-key upgrade is **TIMELOCK-gated**.
+  - **Relic** — recursive-SNARK chain terminating at an EVM `blockhash()` (`validCurrentBlock`: `block.number
+    - num <= 256 && blockhash(num) == hash`); **verifier keys are immutable (set once in the constructor)**.
+    An optional `signer` only *adds* a gate, can't forge past the SNARK.
+- **Relayed/attested (more trust):**
+  - **Herodotus** — the MPT/MMR math is sound, **but the MMR root itself is *not* proven on this contract**:
+    `HeadersStore.createBranchFromMessage` (`onlyMessagesInbox`) takes the root from a **trusted cross-domain
+    message** (the ZK proof is verified off-chain on L1; only its output is bridged in), and the authoritative
+    cross-domain sender is **`onlyOwner`-configurable**. So a query result is bound to a **relayer-supplied
+    root** — materially weaker than Axiom/Relic. (Architectural, by design; no in-repo exploit — the math is
+    honest *given* an honest root.)
+  - **Brevis** — the slot SNARK is anchored to an **Ethereum light client (sync-committee signature)** — so
+    the hash origin is *attested by a committee*, not a validity proof; sound binding, but the verifier
+    address + BlockChunks are **`onlyOwner`-upgradable with no timelock** (vs Axiom's timelock) — a sharper
+    governance edge.
+
+**Verdict: no finding in any; the SNARK verification logic is sound across all four.** The differentiation is
+exactly the corpus's recurring axis: **Axiom/Relic *prove* the block hash (the trustless end); Herodotus
+*relays* it and Brevis has a committee attest it (the trusted end)** — and the governance ceiling sorts the
+same way (Axiom timelock / Relic immutable, vs Herodotus owner-set-sender / Brevis owner-no-timelock). **This
+is the same "proven vs. attested" split as IBC-vs-Gravity (B13a) and tBTC-vs-Lombard (B15), now for *arbitrary
+historical state*** — strong evidence the axis is the deep invariant of the whole domain, not a bridge
+quirk. (One shared non-bug across all SNARK verifiers: the `verifier.call(proof)` pattern treats any
+non-reverting call as success, so each relies on its verifier blob reverting on a bad proof — standard, and
+the verifier-key governance above is what guards it.)
+
+---
+
+## B19. Native interop + restaking-secured messaging — the security is only as real as the slashing you actually wire
+**Target:** `ava-labs/icm-contracts` (Teleporter), `omni-network/omni` (OmniPortal + OmniAVS), `Layr-Labs/
+eigenlayer-contracts` (AllocationManager), `symbioticfi/core` (Slasher). Two novel families: **native interop**
+(messaging baked into the protocol — Avalanche Warp/BLS, Omni's quorum) and **restaking-secured** messaging
+(a bridge backed by restaked ETH + slashing). **Result: the message-authorization is sound everywhere, but the
+restaking sweep surfaces a sharp lesson — "restaking-secured" only means something if the bridge AVS *wires up
+slashing*, and one prominent one doesn't.**
+
+**Native interop — a validator-set signature, but native to the protocol:**
+- **Avalanche ICM / Teleporter:** a message is authorized by an **aggregated BLS signature of the source
+  subnet's validator set**, verified in the **Warp precompile** (`getVerifiedWarpMessage`) — the Solidity
+  `receiveCrossChainMessage` trusts the precompile, then checks `originSenderAddress == address(this)`
+  (only an identical Teleporter on the source can speak) and `destinationBlockchainID` match, with a strong
+  **`messageID` nonce replay guard**. Trust = the precompile's stake-weighted BLS quorum (out-of-repo).
+- **Omni:** an **on-chain ECDSA stake-weighted quorum** — `Quorum.verify` accumulates `votedPower +=
+  validators[sig.validatorAddr]` over **sorted/deduped** signers (`sig.validatorAddr > prev`, **verified
+  myself**) and requires **`_isQuorum`** (`votedPower * denominator > totalPower * numerator`, strict) over a
+  **Merkle-proven attestation root**, with a **strict in-order stream-offset** replay guard
+  (`offset == inXMsgOffset+1`). The verification is clean and the quorum math is correct. This is the
+  Gravity/Axelar "validator-set signature" model (B13a/B4), native to Omni.
+
+**Restaking — the security is the *slashing*, and it has to be wired:**
+- **The primitives are sound where they exist.** EigenLayer's `AllocationManager.slashOperator` gates on
+  **`require(msg.sender == getSlasher(operatorSet))`** (**verified**) with allocation/**deallocation-delay
+  anti-evasion** (an operator can't dodge a pending slash by deallocating). Symbiotic's `Slasher.slash` is
+  `onlyNetworkMiddleware`, capture-window-bounded, capped at `min(amount, slashableStake)`, with a veto/
+  resolver layer. Both are canonical, caller-authorized, evasion-resistant slashing.
+- **The gap (Omni, flagged):** `OmniAVS` advertises EigenLayer **"restaking security," but wires up no
+  slashing at all** — a grep for `slash`/`Slasher` in `avs/src/` returns **nothing** (**verified myself**).
+  Restaked stake **feeds validator weight** (`syncWithOmni` mirrors delegated stake into voting power) but is
+  **not on-chain slashable for cross-chain misbehavior**; the only recourse is governance **`ejectOperator`
+  (`onlyOwner`)**. So the bridge's economic security is **"cryptoeconomic by social/governance ejection,"
+  not by automated slashing** — materially weaker than a naive "restaked + slashing" reading. (EigenLayer M2-
+  era design; a characterization, not a code bug — the quorum itself is enforced.)
+
+**Verdict: no finding; message-auth is sound in all four.** **The lesson it adds to the taxonomy** is the
+restaking-specific form of "name your oracle": **a trust root (restaked stake) is only as strong as the
+*enforcement* actually attached to it.** "Secured by $X billion of restaked ETH" is a **liveness/weight**
+claim until a **slasher** is wired that makes misbehavior cost that stake — and the slashing primitive
+(EigenLayer `AllocationManager`, Symbiotic `Slasher`) must be (a) present, (b) caller-authorized to the right
+party, and (c) evasion-resistant (the deallocation-delay). Omni has the quorum but not (yet) the slasher;
+Symbiotic/EigenLayer have the slasher done right. **Residual across all four:** the validator/operator set's
+honest quorum (BLS or ECDSA), plus — for the restaking story — *whether* and *how* that set's stake is
+slashable. The same pattern as every other entry: the contract's *verification* is clean; the *trust root* —
+here, "restaked stake you can actually slash" — is the residual.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -909,6 +1052,9 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B14 | Lombard LBTC | BTC-LST consortium wrapper (off-chain attestation) | sig check correct, but **no on-chain BTC proof**; trust = consortium + custodians + Bascule + MINTER_ROLE (high TVL) |
 | B15 | Bitcoin-side ×7 (tBTC·Nomic·Babylon·sBTC·BitVM·Clementine·BOB) | proven-vs-attested Bitcoin spectrum | tBTC/Nomic/Babylon **verify real BTC PoW+SPV**; sBTC/Lombard **attest**; Clementine = BitVM + SecurityCouncil residual |
 | B16 | NEAR Chain Signatures | MPC chain abstraction (no bridge/mint) | access-control sound (caller-derived tweak); trust = MPC threshold, **largest blast radius** (every chain, every account) |
+| B17 | Intent settlement (UniswapX, CoW) | user's signed intent **is** the authorizer | trust *inverted*: underfill structurally impossible (signed recipient + min-output, atomic); residual ≈ Permit2 / solver allowlist (surplus only) |
+| B18 | ZK coprocessors (Axiom·Relic·Herodotus·Brevis) | trustless oracle via storage proof | SNARK clean; trust = **proven vs. relayed block hash** (Axiom/Relic prove it; Herodotus relays, Brevis committee-attests) |
+| B19 | Native interop + restaking (Teleporter·Omni·EigenLayer·Symbiotic) | BLS/ECDSA quorum + restaked-stake slashing | auth sound; **"restaking-secured" is only real if slashing is wired** — Omni AVS has none (governance ejection only) |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
@@ -931,14 +1077,14 @@ a *trust-root* compromise (Ronin 5/9 keys, Harmony 2/5, Multichain MPC keys) —
 clean code removes. The lens earns its keep by putting **"who authorizes the mint"** first: the contract read
 tells you the code is clean; the *answer to that question* tells you what you're actually trusting.
 
-**The tally after the full sweep:** **~51 bridge systems** — **15 deep reads (B1–B15; B11 = 6 canonical
-L1↔L2 bridges, B13 = 20 non-EVM programs across Solana/Cosmos/Move, B15 = 7 Bitcoin-side pegs) + 12 rapid EVM
-surface sweeps** — spanning **every row of the taxonomy** from HTLC (no authorizer) and first-party issuer and
-native-proof down to off-chain-bare-role, across **five substrates** (EVM, SVM, Cosmos-SDK, Move, Bitcoin) and
-the BTC-specific *proven-vs-attested* axis. **Every single contract's verification is clean** (sound predicate,
-replay guard, conservation); **not one exploitable finding** (the only latent issue found — Nomic legacy-address
-matching — *fails closed*). The variance is *entirely* in the trust root, and the deep reads added four
-refinements the original six-row table didn't have:
+**The tally after the full sweep:** **~70 systems** — **19 deep reads (B1–B19) + 12 rapid EVM surface sweeps**
+— now reaching past bridges into the adjacent frontier (MPC chain abstraction, intent settlement, ZK
+coprocessors, native interop, restaking). They span **every row of the taxonomy** from HTLC (no authorizer) and
+first-party issuer and native-proof down to off-chain-bare-role, across **five substrates** (EVM, SVM,
+Cosmos-SDK, Move, Bitcoin). **Every single contract's verification is clean** (sound predicate, replay guard,
+conservation); **not one exploitable finding** (the only latent issue — Nomic legacy-address matching — *fails
+closed*). The variance is *entirely* in the trust root, and the deep reads added six refinements the original
+six-row table didn't have:
 - **B9 marginal trust** — trust-minimality is *relative to what you already hold*. Circle CCTP is fully
   centralized yet adds **zero** trust for USDC (issuer == attester), beating every third-party wrapped bridge.
 - **B10 the multisig can live in the cryptography** — Chainflip's *one* on-chain Schnorr signature is a >2/3
@@ -955,6 +1101,16 @@ refinements the original six-row table didn't have:
   that proof with a **committee's attestation** (sBTC, Lombard). It's the IBC-vs-Gravity gap again, on the
   asset with the most value and the least on-chain expressiveness — and the market mostly bought the attested
   end.
+- **B17 trust can be *inverted*** — not every value transfer needs an authorizer you trust to mint. If the
+  protected party **signs their own acceptance condition** (min-output + recipient) and settlement is atomic,
+  the authorizer *is the user* and the residual collapses to their signature (UniswapX, CoW). The same
+  conserve-by-construction spirit as HTLC (B12), generalized to solver markets.
+- **B18+B16+B19 the axis is the deep invariant, not a bridge quirk** — *proven-vs-attested* recurs for
+  arbitrary historical state (ZK coprocessors: Axiom/Relic prove the block hash, Herodotus relays it), for
+  MPC chain abstraction (B16 — the destination verifies *nothing*; trust is the threshold), and for restaking
+  (B19 — "secured by restaked stake" is only real once a **slasher** is wired; Omni's AVS has the quorum but
+  not the slashing). Across bridges, coprocessors, key-custody, and cryptoeconomics, the same question sorts
+  every system: *is the claim proven, or attested — and who can change the machinery that decides?*
 
 **The single sentence the whole sweep proves, now measured on ~23 bridges:** *the contract is never the weak
 link — the trust root is,* and going down the taxonomy you don't remove the trust, you only make it **less
