@@ -18,7 +18,7 @@ extends the §4f spectrum (`../methodology/AUDIT-CAPSTONE.md`).
 |---|---|---|
 | **First-party issuer burn-and-mint** (trust-minimal *relative to the asset*) | the asset's own issuer (whom you already trust by holding it) — **zero marginal trust** | **Circle CCTP (USDC)** |
 | **Light client / native proof** | cryptographic (verify the source chain's consensus/proof) | IBC, zkBridge, native rollup bridges |
-| **HTLC atomic swap** | hash-lock + timelock (no free-mint authority) | Meson core / Express |
+| **HTLC atomic swap** (no authorizer at all) | hash-lock + timelock; conservation by construction, **nothing to compromise** | **HTLC ref (B12)**, Meson core / Express, Lightning |
 | **PoS validator set / separate chain** | >2/3 stake of a staked set | Axelar |
 | **Oracle + relayer (separated)** | 2 independent parties must both be honest | LayerZero |
 | **Optimistic / intent** | 1-of-N honest watcher + a fronting relayer's capital | Across, Hop |
@@ -537,6 +537,54 @@ ones — exactly the distinction the taxonomy exists to draw. **No finding** in 
 
 ---
 
+## B12. HTLC atomic swap — the conserve-by-construction floor; the **only** model with *no authorizer at all*
+**Target:** a canonical `HashedTimelockERC20.sol` reference (the model Meson/Lightning/Connext-vector use;
+read at the contract level to finally close the taxonomy's trust-minimized end). **Result: the one bridge
+model in the entire sweep with zero authorizer, zero governance, zero upgrade, and conservation enforced
+purely by a binary state machine over self-custodied funds — the theoretical floor, paid for in convenience.**
+
+**Trust model: there isn't one.** No committee, no validator set, no oracle, no relayer, no proof system, no
+admin key, no proxy. The "release" is just a counterparty claiming **pre-locked** funds by revealing a hash
+preimage. There is literally nothing external to compromise.
+
+**The whole state machine (three functions, all the safety is structural):**
+- **`newContract` (`:112`):** sender locks `_amount` into the contract under `hashlock = sha256(preimage)`
+  and `timelock`; `contractId = sha256(sender, receiver, token, amount, hashlock, timelock)` and a duplicate
+  id is rejected (`:138` — replay/dup guard). Funds move in via `transferFrom` — **the contract only ever
+  holds what was deposited.**
+- **`withdraw(id, preimage)` (`:176`):** gated by `hashlockMatches` (**`sha256(preimage) == hashlock`**,
+  `:71-74`) + `withdrawable` (`msg.sender == receiver`, not already withdrawn/refunded). Sets
+  `withdrawn = true` (one-shot) then transfers to receiver.
+- **`refund(id)` (`:198`):** after `timelock` passes and if not withdrawn, `msg.sender == sender` reclaims;
+  sets `refunded = true`.
+
+**Conservation — by construction, not by check:** every locked contract resolves to **exactly one of
+{withdrawn → receiver, refunded → sender}**, both flags one-shot and mutually exclusive (`withdrawable`/
+`refundable` each require the other false). The contract can never pay out more than was locked, never to
+anyone but the two named parties, never twice. `Σ in == Σ out` is a *property of the state machine*, not an
+invariant the code recomputes — the strongest possible conservation floor.
+
+**How it bridges without a bridge (atomic swap):** Alice locks on chain A under `H = sha256(s)`; Bob locks
+on chain B under the *same* `H`. Alice reveals `s` to withdraw on B — which exposes `s` on-chain — and Bob
+uses `s` to withdraw on A. **Either both legs complete or both refund.** Cross-chain atomicity comes entirely
+from the shared hashlock + the two chains' own liveness; **no messenger, no mint, no trusted party crosses
+the gap.**
+
+**Verdict: the trust-minimized floor of the taxonomy — and the reason the rest of the taxonomy exists.**
+**No finding.** **Residual (and it's purely liveness/economic, never safety):** (1) **timelock ordering** —
+A's timeout must exceed B's, or a party can be griefed; funds always eventually return to their owner, so
+it's a liveness not a custody risk; (2) the **free-option problem** — whoever reveals second can walk away
+(economic, mitigated by timelock design); (3) a reference subtlety worth flagging — this impl **comments out
+the post-timeout withdraw block** (`:80-84`), so at the expiry boundary both `withdraw` and `refund` are live
+until one executes; correct atomic-swap practice relies on timelock *ordering* to avoid that race, not on
+the contract. **Why everything else in the taxonomy is weaker-but-used:** HTLC requires a **counterparty with
+matching liquidity on the far side** and an **interactive, per-swap** protocol — it can't pass arbitrary
+messages or tap pooled liquidity. **The entire taxonomy is the price of giving up HTLC's zero-trust for
+convenience and capital efficiency:** the moment you want a pool, a wrapped asset, or one-way messaging, you
+must reintroduce an authorizer — and from there it's only a question of *how human* that authorizer is.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -581,7 +629,8 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B8 | Socket DL (Bungee) | n-of-n attestation **or** optimistic timeout+veto | sound; floor = **1-of-N watcher veto + timeout**, not the headline n-of-n |
 | B9 | Circle CCTP | first-party issuer burn-and-mint | clean; **zero marginal trust** for USDC (issuer == attester); residual = Circle, default 1-of-n |
 | B10 | Chainflip | TSS vault (off-chain threshold-Schnorr) | clean, hardened; trust = the aggregate key (>2/3, FROST) + time-gated govKey backstop |
-| B11 | zkSync Era · StarkGate · Scroll | native zk-rollup canonical bridges | all clean: withdrawal **gated on a verified validity proof**; residual = governance verifier-upgrade |
+| B11 | 6 native canonical L1↔L2 | zkSync·StarkGate·Scroll·Arbitrum·zkEVM (proof) + Polygon PoS (sidechain) | 5/6 **gated on a verified proof**, no bypass; Polygon PoS outlier = 2/3+1 validator sig |
+| B12 | HTLC atomic swap | conserve-by-construction (hashlock + timelock) | **no authorizer at all**; conservation by binary state machine; residual = liveness only |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
