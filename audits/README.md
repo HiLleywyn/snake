@@ -56,9 +56,7 @@ Grouped by conservation mechanism:
 **Rollups (validity / fraud):** [zkSync](chains/AUDIT-ZKSYNC-VALIDITY-PROOF.md) ·
 [Optimism](chains/AUDIT-OPTIMISM-FRAUD-PROOF.md)
 **Async / sharded:** [NEAR](chains/AUDIT-NEAR-RECEIPTS.md) · [TON](chains/AUDIT-TON-BOUNCE.md)
-**Cross-chain seams:** [IBC ics20](chains/AUDIT-IBC-TRANSFER.md) ·
-[Bridges (Wormhole/LZ/Hyperlane)](chains/AUDIT-BRIDGES-SIX-BUCKET.md) ·
-[Hyperliquid Bridge2](chains/AUDIT-HYPERLIQUID-BRIDGE.md) · [Canton/Splice](chains/AUDIT-CANTON-SPLICE.md) · [Meson / Free Tunnel](chains/AUDIT-MESON-FREETUNNEL.md)
+**Cross-chain seams (→ see [bridges/](#-bridges--the-weak-link-audited)):** [Canton/Splice](chains/AUDIT-CANTON-SPLICE.md)
 **Storage / caller-scoped:** [Filecoin](chains/AUDIT-FILECOIN-ACTORS.md) ·
 [Stacks (post-conditions)](chains/AUDIT-STACKS-POSTCONDITIONS.md)
 **ZK / privacy chains:** [Namada MASP](chains/AUDIT-NAMADA-MASP.md) ·
@@ -68,6 +66,17 @@ Grouped by conservation mechanism:
 [Aztec conservation](chains/AUDIT-AZTEC-PASS2-CONSERVATION.md) · [Aztec 6b](chains/AUDIT-AZTEC-AVM-BUCKET6-TEST.md) ·
 [Aleo/Mina](chains/AUDIT-ALEO-SIX-BUCKET.md) · [Mina](chains/AUDIT-MINA-SIX-BUCKET.md) ·
 [Monero RingCT](chains/AUDIT-MONERO-RINGCT.md)
+
+## 🌉 bridges/ — the weak link, audited
+The corpus's highest-risk category (every nine-figure hack lives at the settlement seam). Two-question
+lens: **who authorizes the mint, and what does the mint check.**
+| File | What it is |
+|---|---|
+| [AUDIT-BRIDGES-SWEEP.md](bridges/AUDIT-BRIDGES-SWEEP.md) | **The dedicated sweep** — bridge trust-model taxonomy + per-bridge contract reads (B1 Wormhole, …) |
+| [AUDIT-BRIDGES-SIX-BUCKET.md](bridges/AUDIT-BRIDGES-SIX-BUCKET.md) | Wormhole / LayerZero / Hyperlane through the six-bucket lens |
+| [AUDIT-MESON-FREETUNNEL.md](bridges/AUDIT-MESON-FREETUNNEL.md) | Meson HTLC (trust-minimized) vs Free Tunnel lock-mint (high-risk) |
+| [AUDIT-HYPERLIQUID-BRIDGE.md](bridges/AUDIT-HYPERLIQUID-BRIDGE.md) | Hyperliquid Bridge2 — validator-multisig withdrawal |
+| [AUDIT-IBC-TRANSFER.md](bridges/AUDIT-IBC-TRANSFER.md) | IBC ics20 — light-client native-proof seam |
 
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
