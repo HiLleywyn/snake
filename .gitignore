@@ -4,3 +4,15 @@ cow/
 debridge/
 *-contracts/
 nearmpc/
+# client/repo clones that agents may accidentally place in the repo root
+go-ethereum/
+reth/
+erigon/
+lighthouse/
+prysm/
+cometbft/
+cosmos-sdk/
+polkadot-sdk/
+agave/
+bitcoin/
+*-ethereum/
