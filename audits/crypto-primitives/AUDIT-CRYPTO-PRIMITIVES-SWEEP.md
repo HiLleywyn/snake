@@ -125,8 +125,12 @@ on-curve only" — and reconciled it with a hypothesis ("the pairing fails anywa
 both the apparent divergence and the hypothesis were wrong: geth *also* subgroup-checks G2.** geth's
 `G2.Unmarshal` rejects via `twistPoint.IsOnCurve()`, whose body (`cloudflare/twist.go:60-65`) performs
 `y²==x³+b` **and** a subgroup check — *"multiply the point by the group order and verify it becomes the point at
-infinity"* (`Mul(c, Order); z.IsZero()`). So **both clients reject a non-subgroup G2 point at decode** (geth →
-`"malformed point"` / precompile fails; revm → `is_in_correct_subgroup` fails / precompile fails) — **identical
+infinity"* (`Mul(c, Order); z.IsZero()`). So **both clients reject a non-subgroup G2 point at decode — verified in *all three* implementations from
+source (the re-audit didn't stop at geth):** geth/cloudflare `twistPoint.IsOnCurve` does `r·Q==O`
+(`twist.go:60-65`); revm/arkworks `is_in_correct_subgroup_assuming_on_curve` (`bn254/arkworks.rs:92`); and
+revm's **substrate-bn** backend `bn::AffineG2::new` computes `p·r` via `(p·(-Fr::one()))+p` and returns
+`NotInSubgroup` (`bn/src/groups/mod.rs:104`), gated by `G2Params::check_order()==true` (`:469`) while G1 uses
+the default `false` (cofactor 1 — correct to skip). **All three subgroup-check G2, all three skip G1 — identical
 observable behavior, no divergence, no hypothesis needed.** The original error came from reading the *call site*
 (`require IsOnCurve`) without opening the *function* — the precise failure mode the corpus is built to catch
 (`recompute, don't trust the summary`), here caught in my own work. The 8-years-of-mainnet evidence still holds,
