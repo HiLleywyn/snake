@@ -191,3 +191,20 @@ the update txs via `RequestedValidatorSetUpdate` + `FinalizedValidatorSetUpdate`
 uniqueness regardless of off-chain promises — `../../DESIGN-PRINCIPLES.md`), confirmed **LATENT** — it did *not*
 escalate to live Critical, so nothing required private disclosure of a live exploit; the recommended hardening
 (`requireUniqueAddresses` + non-zero) stands as public defense-in-depth. Verified read-only; no exploit, no tx sent.
+
+### Local mechanism reproduction (non-weaponized) — `tools/repro_bridge2_duplicate_quorum.py`
+
+A **local, synthetic-key, no-live-target** reproduction proves the double-counting by running the contract's
+*exact* logic — `checkValidatorSignatures` (`:436-456`) + `recoverSigner`/`makeMessage`/`makeDomainSeparator`
+(EIP-712, `Signature.sol`) ported **verbatim**, driven with **real secp256k1** signatures. Output:
+
+```
+[CASE 1] duplicate set [A,A,B], signatures=[sigA, sigA]:  cumulativePower=80 -> 3*80 > 2*100 == True  (PASSED, one key)
+[CONTROL] unique  set [A,C,B], signatures=[sigA]      :  cumulativePower=40 -> 3*40 > 2*100 == False (correctly rejected)
+```
+
+The same key A is rejected at its real 40% weight but passes at 80% once duplicated. **Refinement beyond the
+original report:** the attack does **not** require two *distinct* signatures — the loop dedupes by array
+**position** (`signatureIdx`), not by signature content, so **one signature copied into two slots** is counted
+twice. So the precondition is solely "a duplicate address is in the active set" (verified never to have occurred
+on-chain). Reproduction is a disclosure artifact: **no live target, no funds, no transaction sent.**
