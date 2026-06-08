@@ -22,10 +22,14 @@ extends the §4f spectrum (`../methodology/AUDIT-CAPSTONE.md`).
 | **Oracle + relayer (separated)** | 2 independent parties must both be honest | LayerZero |
 | **Optimistic / intent** | 1-of-N honest watcher + a fronting relayer's capital | Across, Hop |
 | **External appointed committee (multisig)** | >threshold of an appointed signer set | **Wormhole (13/19)**, Hyperliquid Bridge2, Ronin |
+| **Off-chain signer + on-chain bare role-check** (worst) | a single role-holding address (backed by an off-chain MPC/threshold group the contract never verifies) | **Synapse (NODEGROUP_ROLE)**, Multichain-class |
 
-The multisig committee is the most-hacked model (Ronin, Harmony, Hyperliquid-class). Light-client and
-HTLC are the most trust-minimized. Most "bridges" are message-passing layers that *a token bridge sits
-on top of* — the token bridge's mint trusts the messaging layer's authorizer.
+The multisig committee is the most-hacked model (Ronin, Harmony, Hyperliquid-class), and the **off-chain
+signer + bare role-check** below it is weaker still — the contract verifies *nothing* cryptographic, it
+just checks `msg.sender` has a role, so security is entirely off-chain key management + the proxy admin
+(this is the Multichain failure class). Light-client and HTLC are the most trust-minimized. Most "bridges"
+are message-passing layers that *a token bridge sits on top of* — the token bridge's mint trusts the
+messaging layer's authorizer.
 
 ---
 
@@ -276,6 +280,135 @@ owner) remains as the backstop that can change or halt the proof machinery.
 
 ---
 
+## B7. Synapse — off-chain MPC "node group" + on-chain **bare role-check**; the weakest taxonomy row (no on-chain verification at all)
+**Target:** `synapsecns/synapse-contracts`, `contracts/bridge/SynapseBridge.sol` + `ECDSANodeManagement.sol`.
+Surfaced as **interesting** by the rapid sweep, and on a deeper read it earns a **new worst-case row** in
+the taxonomy: a bridge whose mint path performs **zero cryptographic verification on-chain** — it trusts a
+single address holding a role. **Result: not an exploitable contract bug (the role-check works as designed),
+but the starkest trust-concentration in the sweep — security collapses entirely to off-chain key management
++ the upgradeable-proxy admin. Characterized and named; no finding (the trust is the whole story).**
+
+**Trust model:** an off-chain **MPC / threshold-ECDSA "node group"** (a tBTC-style *keep* —
+`ECDSANodeManagement.sol` tracks `members`, `honestThreshold`, and a single aggregated `publicKey`,
+`:29-36`) reaches consensus off-chain and produces **one** signature from **one** aggregate-key address.
+That address is granted `NODEGROUP_ROLE`. **The bridge never sees or verifies that signature.**
+
+**The mint/withdraw authorization — the entire on-chain check (read it; this is the whole gate):**
+- `mint` (`SynapseBridge.sol:232`): `require(hasRole(NODEGROUP_ROLE, msg.sender), "Caller is not a node
+  group")` (`:239`) → `token.mint(address(this), amount); safeTransfer(to, amount - fee)` (`:245-246`).
+- `withdraw` (`:200`), `mintAndSwap` (`:351`), `withdrawAndRemove` (`:459`): **identical bare role-check.**
+- There is **no `ecrecover`, no signature, no source-chain proof, no Merkle inclusion** anywhere in the
+  release path. Whoever holds `NODEGROUP_ROLE` can mint **arbitrary** `synERC20` to **any** address. This
+  is *weaker than every other bridge in the sweep* — Wormhole/Axelar/LayerZero at least **verify a multisig
+  on-chain**; Synapse verifies a **role**.
+- **Conservation:** mint-on-dest (`:245`); **nothing on-chain ties the minted amount to a verified
+  source-chain lock/burn** — the off-chain node group is trusted to have seen the deposit. Replay guard *is*
+  present and correct: `require(!kappaMap[kappa], "Kappa is already present"); kappaMap[kappa] = true`
+  (`:241-242`, on every path) — so a given authorization (`kappa`) mints exactly once.
+
+**Governance ceiling (where the rest of the trust sits):** `Initializable` **upgradeable proxy**
+(`:21`); `initialize` does `_setupRole(DEFAULT_ADMIN_ROLE, msg.sender)` (`:42`). `DEFAULT_ADMIN_ROLE`
+**grants/rotates `NODEGROUP_ROLE`** and pauses; `GOVERNANCE_ROLE` sets fees/gas and adds kappas
+(`:139-154`). So two keys fully control the bridge: the **admin** (can hand `NODEGROUP_ROLE` to any address,
+or upgrade the logic entirely) and the **node-group key** (can mint at will). Either compromise = unlimited
+mint = total drain. **This is exactly the Multichain failure class** (the 2023 ~$130M loss was off-chain
+MPC-key control, not a contract bug).
+
+**Verdict: the contract is *correct* for what it is** (role-check + `kappa` replay guard both sound), **but
+the trust model is the thinnest in the sweep** — no on-chain verification of anything, security == off-chain
+threshold-keep key hygiene + the proxy admin + the role-admin key. **No finding** (nothing is exploitable
+*in the contract*; the role-check does precisely what it says), and this is a **publicly-documented
+architecture**, so naming it here is characterization, not disclosure. The lesson it adds to the taxonomy:
+**"audit the bridge" can mean reading the contract and finding it sound, yet the bridge is still the weak
+link — because the contract delegates the entire trust off-chain to a key the chain can't see.** The
+defensive recommendation (the constructive mirror) is the standing one: **verify the attestation on-chain**
+(as Wormhole/Axelar do) so a single off-chain key compromise can't mint, and **timelock the role-admin +
+proxy upgrade** so a grant of `NODEGROUP_ROLE` is observable before it's live.
+
+---
+
+## B8. Socket DL (Bungee) — "FastSwitchboard": the headline is n-of-n, the **floor is optimistic+veto**; sound, but the name oversells
+**Target:** `SocketDotTech/socket-DL`, `switchboard/default-switchboards/FastSwitchboard.sol` +
+`SwitchboardBase.sol` + `socket/SocketDst.sol`. Surfaced as **interesting** by the rapid sweep (the agent
+flagged `allowPacket` returning `true` on timeout with zero attestations). On a careful read it is **not a
+bug — it's a deliberate optimistic-with-watcher-veto model — but it's a genuinely instructive one**: the
+switchboard's *advertised* security (all watchers must attest) is only its **fast path**; its actual
+security **floor** is a 1-of-N honest-watcher veto within a timeout. Worth a full write-up because the gap
+between the two is exactly the kind of thing the "name your oracle" discipline exists to surface.
+
+**The two-tier security (read `allowPacket`, `:187-213`):**
+```
+if (trips...) return false;                                  // global/path/proposal trip, or stale packet
+if (isRootValid[root_]) return true;                         // FAST PATH: all watchers attested
+if (block.timestamp - proposeTime_ > timeoutInSeconds) return true;   // FLOOR: optimistic timeout
+return false;
+```
+1. **Fast path** — `isRootValid[root]` is set **only when `attestations[root] >= totalWatchers[srcChainSlug]`**
+   (`attest :128` — i.e. **n-of-n**, *every* registered watcher signed). This is the strong, advertised case.
+2. **The floor** — if not all watchers attest, then after `timeoutInSeconds` the root becomes valid **with
+   zero attestations** (`:209`, commented "used to make the system work when watchers are inactive due to
+   infra etc problems"). So the *effective* security is **not** n-of-n — it's "a transmitter-proposed root
+   executes after the timeout **unless a watcher vetoes it.**"
+
+**Why it's sound, not a hole — the veto (this is the part that matters, and I verified it):** a **single**
+honest watcher can stop a fraudulent root within the window. `tripProposal` (`SwitchboardBase.sol:232-260`)
+is gated by **`WATCHER_ROLE` per source chain** (`:254`) and sets `isProposalTripped[packetId][proposalCount]`,
+which makes `allowPacket` return `false` (`:200`) — **permanently blocking that proposal**, even past the
+timeout. `tripPath` (`:194`, also WATCHER_ROLE) halts an entire source lane; `tripGlobal` (`:164`, TRIP_ROLE)
+halts everything. All are nonce-protected signed messages. So the model is precisely the **optimistic family**
+(cf. Across B3, OptimismPortal B6): **1-of-N honest, online watcher within a timeout**, not n-of-N.
+
+**The execution gate is otherwise tight** (`SocketDst.execute`): `PacketNotProposed` if the root is zero,
+executor-signature check, `switchboard.allowPacket(...)` else `VerificationFailed`, **a real Merkle
+inclusion proof** `decapacitor.verifyMessageInclusion(...)` else `InvalidProof`, and a replay guard
+`if (messageExecuted[msgId]) revert MessageAlreadyExecuted()` set before external calls. So a forged root
+still needs valid Merkle inclusion of the message — the timeout path doesn't skip the inclusion proof, only
+the *attestation*.
+
+**Verdict: a correctly-built optimistic switchboard whose marketing ("Fast", n-of-n attestation) describes
+its best case, while its security floor is the weaker, accurate one: 1 honest watcher must be live and must
+veto within `timeoutInSeconds`.** No finding. **Residual (the irreducible trust):** (1) **watcher liveness**
+— if *no* watcher is online/honest for `timeoutInSeconds`, a fraudulent (but Merkle-valid-for-a-fake-root)
+packet finalizes; safety rests on at least one watcher watching; (2) the **`timeoutInSeconds` parameter** —
+too short and watchers can't react, too long and the bridge stalls when watchers are genuinely down (the
+liveness/safety knob, GOVERNANCE_ROLE-set); (3) the **watcher set + trip roles** governance. The lesson it
+adds: **read the *floor*, not the headline** — a switchboard that looks like n-of-n attestation can have a
+1-of-N-veto security floor, and the floor is what an attacker targets. (This is publicly-documented Socket
+DL behavior; characterization, not disclosure.)
+
+---
+
+## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
+Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
+12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
+finding: **the contracts are clean; the trust roots cluster into a few shapes, and the recurring weak shape
+is "an owner key decides who attests."**
+
+| Bridge | Authorizer | On-chain check | Clean? | Residual / why flagged |
+|---|---|---|---|---|
+| **Hop** | bonder + optimistic root | **Merkle inclusion proof** (trustless path) | ✅ | bond + challenge window; not flagged |
+| **Celer cBridge** | SGN staked PoS set | signed msg, **2/3 power quorum** | ✅ | owner emergency `resetSigners` (notice period) |
+| **Connext/Everclear** | AMB messaging + liquidity routers | signed router/sequencer + reconcile state machine | ✅ | routers risk own capital; not flagged |
+| **Chainlink CCIP** | commit DON **+ independent RMN** | **Merkle proof vs RMN-blessed root** | ✅✅ | *best-in-class*: dual-quorum + curse; edge: owner can set RMN `minSigners=0` for unsupported lanes |
+| **LayerZero OFT** | the LZ Endpoint (app's DVNs) | endpoint==caller + peer; proof is upstream | ✅ | 1:1 burn/mint **default**; fee-on-transfer subclasses can break 1:1 (integration footgun) |
+| **Hyperlane** | **per-recipient configurable ISM** | signed checkpoint (+ optional Merkle) | ✅ | a recipient can point at `NoopIsm`/1-of-1 — strength is a *deployment choice*, not a guarantee |
+| **deBridge v1** | admin-managed oracle set | signed `submissionId`, ≥N confirmations | ✅ | `DEFAULT_ADMIN_ROLE` can swap the whole `signatureVerifier` + oracle set; UUPS-upgradeable |
+| **Allbridge Core** | **2-of-N** (1 primary + 1 secondary) validators | two `ecrecover` checks | ✅ | entire validator set **owner-rotatable**, single-owner, no in-contract timelock |
+| **Wormhole NTT** | **M-of-N transceivers** (VAA-backed) | threshold + verified VAA + replay + **rate limiter** | ✅ | `setThreshold` floor is **1** (only 0 rejected) → owner can run 1-of-N; UUPS upgrade |
+| **Synapse** | off-chain MPC + **bare role** | **none** (just `hasRole`) | ✅(code) | **B7** — no on-chain verification; Multichain class |
+| **Socket DL** | transmitter + n-of-n watchers / optimistic floor | signed root + **Merkle inclusion** | ✅ | **B8** — security floor is 1-of-N veto + timeout, not n-of-n |
+| **Across v3** | optimistic root + UMA | Merkle proof + 2h challenge | ✅ | **B3** — 1 honest disputer + bond |
+
+**The one pattern, restated and now measured on ~12 more bridges:** every contract's *verification* is
+sound (Merkle proofs, quorum checks, replay guards all present and correct) — **the variance is entirely in
+the trust root**, and the modal weak point is **governance: an `onlyOwner`/`DEFAULT_ADMIN_ROLE` that can
+rotate the signer set, swap the verifier, set the threshold to 1, or upgrade the logic.** CCIP is the
+positive outlier (an *independent* RMN veto layered on the DON — two separate quorums must agree, the
+defense-in-depth the others lack). Synapse is the negative outlier (no on-chain check at all). Everyone else
+lives in between, and where they sit is decided by **one question: can a single key change who attests?**
+
+---
+
 ## Sweep status (running)
 | # | Bridge | Model | Result |
 |---|---|---|---|
@@ -285,6 +418,9 @@ owner) remains as the backstop that can change or halt the proof machinery.
 | B4 | Axelar | weighted PoS validator set (separate chain) | clean, hardened multisig; trust = the staked set (≥threshold weight) |
 | B5 | SP1 Helios | zk light client (native proof) | trust-minimized; trust = source consensus + proof soundness + vkey guardian |
 | B6 | OptimismPortal2 | native rollup bridge (fault-proof-gated) | clean, defense-in-depth; trust = the dispute-game system + Security Council |
+| B7 | Synapse | off-chain MPC + on-chain **bare role-check** (weakest) | contract correct, but **no on-chain verification**; trust = off-chain key + proxy admin (Multichain class) |
+| B8 | Socket DL (Bungee) | n-of-n attestation **or** optimistic timeout+veto | sound; floor = **1-of-N watcher veto + timeout**, not the headline n-of-n |
+| — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
 **all five**, the on-chain *code* is clean — the verification predicate is sound, replay is guarded,
