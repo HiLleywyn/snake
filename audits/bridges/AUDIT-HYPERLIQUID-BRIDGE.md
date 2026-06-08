@@ -173,3 +173,21 @@ finding is **stopped-and-notified privately to Hyperliquid**, not published. I c
 audit** — logged here transparently. Standalone severity *Medium* (latent), *Critical-iff* a duplicate set is found in
 history. The single bridge finding-class of the corpus (off-chain-trusted validator generation) now has a concrete,
 named mechanism on Hyperliquid.
+
+### VERIFIED on-chain (full history, public Arbitrum RPC) — the finding is LATENT, not live
+
+The settling step was **run** against the live chain (`arb1.arbitrum.io/rpc`, read-only, no API key — discovered
+the update txs via `RequestedValidatorSetUpdate` + `FinalizedValidatorSetUpdate` logs, then decoded each
+`updateValidatorSet`/`emergencyUnlock` calldata and the **genesis constructor** args):
+
+- **11 distinct validator-set transactions = the bridge's entire history.** Genesis set: **1 validator** (launch),
+  unique. Every subsequent set (5 `update` requests, 4 `emergencyUnlock`, 2 finalized-via-their-request): **4 hot /
+  4 cold, all unique** — **zero duplicate addresses, zero `address(0)`, across the whole history.**
+- **Result: no duplicate set was *ever* checkpointed.** The duplicate-validator quorum-inflation path was **never
+  realized on-chain** — Hyperliquid's off-chain generation has always produced unique sets, exactly as
+  `Bridge2.sol:147` ("enforced on the L1 side") promises.
+
+**Final disposition:** the finding is a genuine **defense-in-depth weakness** (the on-chain check *should* enforce
+uniqueness regardless of off-chain promises — `../../DESIGN-PRINCIPLES.md`), confirmed **LATENT** — it did *not*
+escalate to live Critical, so nothing required private disclosure of a live exploit; the recommended hardening
+(`requireUniqueAddresses` + non-zero) stands as public defense-in-depth. Verified read-only; no exploit, no tx sent.
