@@ -126,6 +126,16 @@ Threat model: a malicious prover convincing an honest verifier of a **false** st
 | [README.md](zk-proving/README.md) | The proving-system threat model (SOUNDNESS / FROZEN-HEART / UNDER-CONSTRAINED / INPUT-BINDING) |
 | [AUDIT-ZK-PROVING-SWEEP.md](zk-proving/AUDIT-ZK-PROVING-SWEEP.md) | The sweep — Plonky3/FRI (Z1), Halo2/Groth16 (Z2), SP1 (Z3), RISC Zero (Z4) |
 
+## 🕸️ p2p-eclipse/ — the networking floor (can the node reach the honest network?)
+The most upstream layer: discovery + peer management. Threat model: **eclipse** (own all a node's peers →
+control its reality), table-poison, DoS, amplification. Lens: *is the peer set diversified and hard to
+monopolize, and is every spoofable input liveness-checked and bounded.* The floor that guarantees a node can
+reach an honest observer — the precondition every sweep above assumes.
+| File | What it is |
+|---|---|
+| [README.md](p2p-eclipse/README.md) | The eclipse/amplification threat model + the network-floor lens |
+| [AUDIT-P2P-ECLIPSE-SWEEP.md](p2p-eclipse/AUDIT-P2P-ECLIPSE-SWEEP.md) | The sweep — Bitcoin addrman (E1), Ethereum discv5 (E2), libp2p gossipsub (E3) |
+
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
 |---|---|
