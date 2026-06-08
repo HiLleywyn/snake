@@ -259,7 +259,179 @@ against the real input before you allocate, and insist on one canonical encoding
 of S1's verify-before-persist, and the bar for every other wire decoder in this sub-sweep (SSZ, the eth/68 and
 snap/1 handlers, txpool ingress — landing next).
 
-## Sweep status (running)
+## S7. DAS + light clients (Celestia, Ethereum PeerDAS, Helios) — probabilistic recompute, and the validity-vs-fraud axis at the *sample* grain
+**Target:** `celestiaorg/celestia-node` (`share/shwap/sample.go`, `share/eds/byzantine/`),
+`ethereum/consensus-specs` (fulu PeerDAS `p2p-interface.md`, `das-core.md`), `a16z/helios`
+(`consensus-core/src/consensus_core.rs`). **Data-availability sampling is "recompute the summary" made
+probabilistic:** instead of downloading all the data, a node samples random pieces; erasure-coding + random
+sampling make *withholding* statistically detectable. **Result: both DAS designs correctly bind every sample
+to a signed header and resist sample-bias; the novel finding is that they sit on opposite ends of the corpus's
+validity-vs-fraud axis — at the granularity of a single sample.**
+
+**The novel structural contrast (verified myself):**
+- **Celestia — a sample proves *inclusion only* → bad encoding is a *fraud proof*.** `Sample.Verify`
+  (`sample.go:136`) pins the proof range to the requested (row,col) (blocks index-substitution) then checks an
+  **NMT inclusion proof** — `Proof` is literally *"the Merkle Proof validating the share's inclusion"*
+  (`:31`, verified). The verify is **inlined in the fetch path** (`sample_block.go:133` calls `Verify` inside
+  `UnmarshalFn` before acceptance), so a peer can't serve an uncommitted share. **But inclusion ≠ correct
+  erasure-coding:** a bad-encoding attack is caught *out-of-band* — a full node reconstructs via `rsmt2d`,
+  raises `ErrByzantine` (`byzantine.go:33`, verified), and gossips a **Bad-Encoding Fraud Proof (BEFP)** to
+  light clients. So Celestia's light-client safety against bad encoding is a **1-honest-full-node + synchrony**
+  assumption — the *fraud-proof* model.
+- **Ethereum PeerDAS — a sample proves *inclusion AND encoding* in one KZG check → no fraud proof.**
+  `verify_data_column_sidecar_kzg_proofs` → **`verify_cell_kzg_proof_batch`** (`p2p-interface.md:179`,
+  verified) cryptographically proves each cell is the correct polynomial evaluation of the committed blob — so
+  a *valid sample is also a valid-encoding proof*, `[REJECT]`-gated in gossip (`:430-431`), plus
+  `is_valid_merkle_branch(hash_tree_root(kzg_commitments) → body_root)` (`:194`) binding to the proposer-signed
+  block. **No fraud proof, no synchrony assumption** — the *validity-proof* model. Custody columns are
+  deterministically derived from `node_id` (`das-core.md` `get_custody_groups`), so a withholder can't predict
+  or avoid honest custodians (anti-bias), and Celestia uses `crypto/rand` sample coords for the same reason.
+- **Helios — the header anchor both presuppose.** A weak-subjectivity checkpoint
+  (`verify_bootstrap: bootstrap.header().tree_hash_root() == checkpoint`) + sync-committee **≥2/3 BLS**
+  (`committee_bits * 3 >= sync_committee_size * 2`) + all finality/committee Merkle branches verified. It's the
+  same trust anchor as S3 (beacon checkpoint) — the signed header that every DAS sample's commitment hangs off.
+
+**This is the settlement-seam axis (`../bridges/AUDIT-BRIDGES-SWEEP.md` §4f: validity proof vs fraud proof),
+now at the data-availability-*sample* level** — the third domain it has appeared in (after bridges and ZK
+coprocessors). PeerDAS = *0-of-N* (cryptographic, the sample itself proves encoding); Celestia = *1-of-N
+honest full node + synchrony* (the sample proves only inclusion, encoding is disputed after the fact). **Both
+sound; PeerDAS is strictly stronger** (removes the honest-full-node + synchrony dependency), at the cost of
+KZG proving overhead. **Failure modes:** **A (accept-unavailable-as-available)** is resisted probabilistically
+in both (random/derived sampling over the extended square forces a withholder to reveal >50%, making the data
+recoverable); **bad-encoding** is inline-defeated in PeerDAS, fraud-proof-defeated in Celestia; **S (stall)**
+returns honest "not available," never a false "available." **No finding.** The lesson: even *probabilistic*
+trust-minimization is the same recompute-vs-trust question — *do you recompute (prove) each sample's encoding,
+or trust it until someone disputes it?*
+
+## S8. Header / skeleton sync (geth, reth) — anchored to the consensus head, so a peer can't substitute a chain
+**Target:** `ethereum/go-ethereum` (`eth/downloader/skeleton.go`), `paradigmxyz/reth`
+(`crates/net/downloaders/src/headers/reverse_headers.rs`). Downloading headers from untrusted peers is the
+oldest "commit to a wrong chain (D)" risk — and post-Merge it's closed by **anchoring the skeleton to the
+consensus-layer forkchoice head**, not a peer-advertised one. **No finding in either.**
+
+- **The trust shape (both clients):** a **reverse skeleton** pinned at the top by the **CL-supplied trusted
+  head** and at the bottom by the **local chain head**; peers only fill the gap *between two trusted
+  endpoints*, every link **parent-hash-checked**. In geth, `skeleton.Sync(head, …)` (`:353`, verified) is
+  reached only from the engine-API `forkchoiceUpdated` path — the `head` is the CL's, never a peer's — and a
+  batch is consumed only if `Subchains[0].Next == scratchSpace[0].Hash()`, with intra-batch linkage
+  `headers[i].ParentHash != headers[i+1].Hash() → drop` (`:895`, verified). Reth pins the first response's top
+  header to the `sync_target` hash (`InvalidTip` otherwise) and validates each header against its parent
+  (`validate_against_parent_hash_number`). **A peer cannot substitute a fake chain** — any header whose hash ≠
+  the expected parent-hash from the CL-anchored head is discarded (**D defeated**).
+- **Resource bounds (S defeated):** geth uses a **fixed pre-allocated scratch ring of `scratchHeaders =
+  131072`** (`:42`, verified, ~64 MB hard cap) and `requestHeaders = 512`/response (`:49`); out-of-window
+  deliveries land in a bounded slice that *cannot grow*. Reth caps buffered out-of-order responses at
+  `max_buffered_responses = 100` and **gates new requests on that buffer** (≈100k headers / ~50 MB), with
+  concurrency capped. Timeouts drop non-responding peers.
+- **Reorg/pivot:** both tear-down-and-restart from the new CL head on `errChainReorged/Gapped/Forked` (geth) /
+  `update_sync_target` + `DetachedHead → reset()` (reth), reconciling subchains by **hash equality, not
+  trust**.
+
+**Verdict:** the post-Merge model makes header sync **D/A/S-safe by construction** — the EL never *chooses* a
+head, it *fills toward* a head the CL already finalized, with bounded buffers and parent-hash linkage. **No
+finding.** The trust anchor is the consensus layer's forkchoice (the irreducible root), exactly as it should
+be.
+
+## S9. Transaction-pool ingress (geth, reth) — the pure resource-exhaustion seam, defended on all three axes
+**Target:** `ethereum/go-ethereum` (`core/txpool/validation.go`, `legacypool/{legacypool,list}.go`,
+`eth/fetcher/tx_fetcher.go`), `paradigmxyz/reth` (`crates/transaction-pool/`, `crates/net/network/src/
+transactions/`). The mempool ingests untrusted txs and the `eth/68` announce→fetch flow — a classic DoS
+*amplification* surface. Here the failure mode is almost entirely **S (resource/liveness)**: OOM, free
+eviction of honest txs, fetch-stall. **No finding; both well-defended on all three axes.**
+
+1. **Admission ordering — cheap before expensive.** Geth's `ValidateTransaction` runs type/blob/**`tx.Size()
+   > MaxSize`** (`:72`, verified)/fork/feecap (`GasFeeCapIntCmp`, `:115`, verified) checks **before**
+   signature recovery `types.Sender(signer, tx)` (`:119`, verified) and intrinsic-gas (`:128`) — so
+   invalid-sig/oversized spam is dropped before paying for `ecrecover`. Reth recovers earlier (network layer)
+   but **truncates the batch to a 4096 pending-import budget *before* the parallel recovery** (and decode-size-
+   limits the wire message) — so the CPU cost is *amplification-bounded*, not a free wedge (a documented
+   design tradeoff, not a defect). Both enforce **per-account slot caps** + global pool size via
+   discard-worst.
+2. **Announce→fetch caps (`eth/68`).** Geth: `maxTxAnnounces = 4096`/peer, `maxTxRetrievals = 256`,
+   `maxTxRetrievalSize = 128 KB`, one in-flight request/peer, **`txFetchTimeout = 5s`** reschedules
+   undelivered hashes to other peers and marks the peer slow — a peer announcing hashes it won't serve
+   **can't wedge the fetcher**. Reth: 320 seen-hashes/peer LRU, 1 in-flight `GetPooledTransactions`/peer,
+   max-pending-fetch 12800, timeout → reputation penalty + re-buffer. **Fetch-stall is bounded everywhere.**
+3. **Replacement/eviction — no free eviction.** Both require a new tx to beat the old by **`PriceBump = 10%`
+   on *both* feecap AND tip** (`100%` for blobs) — an attacker cannot cheaply evict an honest pending tx, and
+   overflow eviction drops only *underpriced* txs (geth caps churn to 25%/reorg).
+
+**Verdict:** the txpool — the most exposed pure-DoS seam in a node — is defended on **all three axes** (cheap-
+before-`ecrecover`, per-peer fetch caps + timeout-reschedule, dual-bump replacement). **No finding.** The one
+characterization worth keeping is Reth's earlier recovery, bounded by import backpressure: a *CPU-amplification*
+edge, not an OOM/free-eviction one. **S held;** D/A/C not applicable (the pool is a candidate buffer, not
+canonical state — consensus validates txs at block-inclusion downstream).
+
+## S10. SSZ decode + beacon gossip validation (Lighthouse, Prysm) — bound-before-allocate, and the ignore-vs-reject DoS discipline
+**Target:** `sigp/lighthouse` (+ `ethereum_ssz`, `ssz_types`), `OffchainLabs/prysm` (+ `fastssz`);
+`beacon_node/.../block_verification.rs` / `beacon-chain/sync/validate_*.go`. The consensus-layer twin of S6:
+SSZ deserialization of untrusted gossip/RPC bytes, plus the gossipsub validation pipeline. **No finding in
+either; both are the textbook of the two disciplines.**
+
+- **SSZ decode = bound-before-allocate (the S6 pattern, SSZ-flavored).** Both decoders cap a variable list's
+  length at the **type's compile-time maximum *before* allocating**: Lighthouse's `ssz_types` checks
+  `num_items > max_len` (`variable_list.rs:333`) **before** `Vec::with_capacity` (`:349`); Prysm's `fastssz`
+  `DecodeDynamicLength` returns `ErrDynamicLengthExceedsMax` (`:125-127`) **before** the `make()`. Offsets are
+  fully **sanitized** — monotonic and in-range (`sanitize_offset`: rejects out-of-bounds, decreasing, or
+  skip-first-variable; Prysm validates `o4 > size || o3 > o4`), the SSZ analog of RLP's `size > remaining`.
+  And Prysm caps the **snappy decompressed size pre-decode** (`DecodeGossip`: `MaxCompressedLen` +
+  `MaxPayloadSize` 10 MiB, `ssz.go:45/83`, verified) — the same decompression-bomb defense as S6's
+  `DecodedLen`. **No allocate-before-validate, no offset confusion, no panic-on-untrusted-bytes.** (S defeated.)
+- **Gossip validation = cheap-before-expensive + the ignore-vs-reject split (a discipline worth naming).**
+  Both pipelines gate the **expensive BLS signature verification *last***, behind cheap structural checks and
+  a **seen-cache dedup** — Prysm: decode→`Reject` (`:63`, verified) → `hasSeenBlockIndexSlot` dedup→`Ignore`
+  (`:101/112`, verified) → DB/parent checks → sig-verify downstream; Lighthouse: future-slot → blob-cap →
+  fork-choice `contains_block` dedup → … → BLS verify at the end. This defeats **CPU-DoS amplification** (an
+  attacker can't make a node burn `ecrecover`/BLS on spam that fails a cheap check). The subtle, important part
+  is the **`IGNORE` vs `REJECT`** mapping, and both get it right per spec: **`REJECT`** (which *penalizes the
+  peer's reputation*) is used only for **provably-invalid** messages — bad structure, bad signature, wrong
+  proposer; **`IGNORE`** (no penalty) for **valid-but-not-useful** — duplicates, future-slot, finality
+  conflicts. Getting this backwards would itself be a DoS: if duplicates were `REJECT`, an attacker could
+  **replay an honest peer's own messages to get it banned**. The split is a genuine DoS-resistance property,
+  and the dedup-cache is correctly set *after* acceptance (you must not cache a forged message as "seen").
+
+**Verdict:** the consensus-client wire surface mirrors the execution-client one (S6): **structural decoding is
+bound-before-allocate and canonical/sanitized, and the gossip layer adds cheap-before-expensive ordering with a
+correct ignore-vs-reject split.** **No finding.** Failure modes: **S** (OOM / decompression-bomb / CPU-DoS)
+defeated; **A/C** downstream (the decoder is structural; consensus validates semantics); **D** not reachable at
+decode (SSZ is canonical by construction — fixed offsets, no length ambiguity).
+
+---
+
+## Synthesis II — the sync + p2p ingress surface, end to end (10 deep reads, ~20 implementations)
+The sweep now spans the node's entire **untrusted-input boundary** — snapshot/checkpoint/range sync (S1–S5),
+wire deserialization (S6, S10), probabilistic availability (S7), header sync (S8), and the txpool/gossip DoS
+surface (S9, S10) — across **four execution clients, two consensus clients, Cosmos, Substrate, Solana,
+Bitcoin, Celestia, and the PeerDAS spec.** The result is uniform and it is the corpus's thesis restated at the
+networking layer: **well-engineered clients force every dangerous failure mode *safe*, because the discipline
+is mechanical and the same everywhere:**
+
+1. **Verify-before-persist / bound-before-allocate.** Nothing untrusted influences canonical state or allocates
+   unbounded memory before a check: a range/Merkle/KZG proof vs a consensus root (S1/S4/S7), a recomputed hash
+   vs an anchor (S2), a length-vs-remaining bound before `make()` (S6/S10), or a commit gated by a recomputed
+   root (S5). Two orderings, both safe: verify-then-write, or write-then-verify-**then-discard/unwind**.
+2. **Anchor to consensus, not to a peer.** The trust root is always the chain's own consensus output — the
+   header state root (S1/S5/S8), a light-client/finality proof (S4/S7), a signed header (S3/S7) — never a
+   peer's advertised value. The two outliers that *don't* recompute against such an anchor (Erigon's snapshot
+   registry, Prysm's weaker checkpoint binding) are precisely the two places this sweep would harden.
+3. **Canonical / deterministic decode.** RLP and SSZ both forbid ambiguous encodings (S6/S10) — closing the
+   quiet **D (divergence)** vector where two honest nodes could read the same bytes differently.
+4. **DoS as a first-class property.** Fixed buffers (S8), per-peer announce/fetch caps + timeouts (S9),
+   cheap-before-expensive + ignore-vs-reject (S10), decompression-size caps (S6/S10/S2) — **S (stall/exhaustion)
+   is the residual the whole stack is explicitly engineered against**, and it's the one that survives (mitigated,
+   never eliminated: a node still needs ≥1 honest peer).
+
+**This is the fail-safe-substrate law (`../methodology/AUDIT-CAPSTONE.md §5b`) at the ingress boundary, and the
+proven-vs-attested axis (`../bridges/AUDIT-BRIDGES-SWEEP.md`) one more time:** sync is overwhelmingly the
+*proven* end — the node **recomputes the summary** (a snapshot, a header, a sample, a wire message) against a
+consensus-anchored root before trusting it — and the few *attested* spots (Erigon registry, Prysm binding) are
+the named residuals. **Across ~20 implementations: zero exploitable findings, the dangerous modes D/A/C forced
+off the table, S engineered-against, and two hardening outliers documented with fixes.** The snake checks its
+tail at every byte the network hands it.
+
+---
+
+## Sweep status
 | # | Target | Layer | (Q2) verify-before-persist? | Worst reachable failure mode |
 |---|---|---|---|---|
 | S1 | go-ethereum snap sync | EVM state ranges | **yes** — `VerifyRangeProof` vs header root before write | only **S**; D/A/C forced safe |
@@ -268,6 +440,10 @@ snap/1 handlers, txpool ingress — landing next).
 | S4 | CometBFT+SDK · Substrate warp | chunked state-sync | **yes** — final apphash gate (`syncer.go:504`) / per-chunk range proof (`state_sync.rs:276`) | only **S**; D/A/C safe (1 decompress-cap note) |
 | S5 | Reth · Erigon | EVM exec sync | Reth **recompute, commit-gated**; Erigon exec recompute+unwind, **snapshot = registry trust** | Reth D/A/C blocked; **Erigon snapshot = anchor outlier** |
 | S6 | go-ethereum RLP + devp2p | wire deserialization | **yes** — frame ≤16MB, snappy `DecodedLen` bomb check, RLP `size > remaining → ErrValueTooLarge` before alloc | **S** defeated (bounded alloc); **D** defeated (canonical form) |
+| S7 | Celestia · PeerDAS · Helios | data-availability sampling | **yes** — each sample bound to a signed header; PeerDAS KZG proves encoding inline, Celestia inclusion-only + BEFP fraud proof | A resisted probabilistically; validity-vs-fraud axis at the sample grain |
+| S8 | geth · reth header/skeleton | header-chain sync | **yes** — anchored to the **CL forkchoice head**, parent-hash linkage, fixed/capped buffers | D/A/S forced safe (peer can't substitute a chain) |
+| S9 | geth · reth txpool | mempool ingress (DoS) | cheap-before-`ecrecover`, per-peer fetch caps + 5s timeout, dual-bump replacement | **S** defended on all 3 axes; D/A/C N/A (candidate buffer) |
+| S10 | Lighthouse · Prysm | SSZ decode + gossip | **yes** — list-len capped at type-max before alloc, offsets sanitized, snappy pre-cap; sig-verify gated last | **S** defeated; **D** N/A (SSZ canonical); ignore-vs-reject correct |
 
 **Result:** 10 implementations, 4 ecosystems — **state sync is the *proven* end and fails safe** (D/A/C forced
 off the table; only S + resource-hardening remain). Two named outliers: **Erigon's snapshot-import registry
