@@ -16,3 +16,5 @@ polkadot-sdk/
 agave/
 bitcoin/
 *-ethereum/
+*-recon/
+*-audit/
