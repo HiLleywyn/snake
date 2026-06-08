@@ -158,18 +158,115 @@ within liveness + correctly-sized bond + UMA.
 
 ---
 
+## B4. Axelar — weighted PoS validator set (separate chain); clean, well-hardened multisig; trust = the set's stake
+**Target:** `axelarnetwork/axelar-gmp-sdk-solidity`, `governance/BaseWeightedMultisig.sol`. The **PoS
+validator set / separate chain** archetype: a message is authorized by **>threshold weight of Axelar's
+staked verifier set**, which signs every cross-chain message and **rotates by epoch**. **Result: the
+weighted-multisig verification is clean and notably well-hardened; the trust is Axelar's validator set.**
+
+**Trust model:** Axelar is its own Cosmos-SDK PoS chain; its validators form a **weighted signer set**.
+Each message's proof must carry signatures whose **summed weight ≥ threshold** from a *known* signer-set
+epoch. The set rotates (`_rotateSigners`), so trust is the **current (or recently-retired) staked set**.
+
+**Verification (`_validateProof` + `_validateSignatures` — read carefully, it's a tidy design):**
+1. **Known signer set, within retention** (`:116-122`): `signersHash = keccak(signers)`; its epoch must be
+   nonzero and `currentEpoch - signerEpoch <= previousSignersRetention` — an unknown or too-old set is
+   rejected (`InvalidSigners`).
+2. **Domain + set binding** (`messageHashToSign :244-247`): the signed hash binds `domainSeparator`
+   (chain/protocol) **and `signersHash`** — a signature is bound to *this* signer set on *this* domain, so
+   it can't be replayed across chains or across rotations.
+3. **Sorted single-pass weight accumulation** (`_validateSignatures :189-229`): both `signers` and
+   `signatures` must be **ascending by address**; one pass recovers each signature (`ECDSA.recover`) and
+   advances `signerIndex` to find its match — out-of-set signer → `MalformedSignatures`. Accumulates
+   `weight`; on reaching `threshold` it returns **only if that was the last signature**, else
+   `RedundantSignaturesProvided` (no padding the proof with extra sigs). Falls through to
+   `LowSignaturesWeight` if the sum never reaches threshold.
+4. **Rotation integrity** (`_validateSigners :254-284`): new set must be **strictly increasing** (dedupe +
+   bars `address(0)`), every `weight > 0`, `0 < threshold <= totalWeight`. `_rotateSigners` bumps epoch
+   and **rejects a repeat set** (`DuplicateSigners`) and enforces `minimumRotationDelay`.
+
+**Verdict: a clean, well-hardened weighted multisig** — set-bound and domain-bound hashes, no duplicate or
+zero-address or zero-weight signers, no redundant-signature padding, sound rotation with delay + dedupe.
+The sorted single-pass merge is a gas optimization that *preserves* correctness (the ascending invariant +
+the redundancy check). **Conservation note:** no-free-mint lives above, in the ITS (Interchain Token
+Service). **Residual (the irreducible trust): Axelar's validator set.** A set controlling **≥threshold
+weight** can sign any message → authorize any mint → drain. It's **better than a fixed appointed multisig**
+(it's stake-weighted, permissionless-to-join-by-stake, and rotates) but **weaker than a light client** (you
+trust the set's *honesty*, not a proof of the source chain's consensus). **No finding;** the trust is named
+and it's the staked validator set (+ the rotation/governance keys).
+
+---
+
+## B5. SP1 Helios — zk light client (native proof); the trust-minimized end; trust = source consensus + the vkey guardian
+**Target:** `succinctlabs/sp1-helios`, `contracts/src/SP1Helios.sol`. The **light-client / native-proof**
+archetype, and the **most trust-minimized model in the taxonomy**: instead of trusting any committee, the
+contract **verifies Ethereum's own consensus** (the sync committee) via a **succinct SP1 zk proof** of the
+light-client state transition. **Result: the model is the strong end — trust collapses to the source
+chain's consensus + the proof system; the one residual is the upgradeable verification key (guardian).**
+
+**Trust model:** a `head`, `headers`, `executionStateRoots`, and `syncCommittees` live on-chain. Each
+`update` advances the head **only if a SNARK proves the Ethereum light-client transition** — i.e. that
+**>2/3 of the current sync committee signed** the new header. That's the *same* trust as running an
+Ethereum light client yourself; no extra party is introduced.
+
+**Verification (`update :149-203` — the elegant part is what the contract refuses to take from the caller):**
+1. **Proof bound to the contract's *own* state** (`:167-178`): `ProofOutputs.prevHeader / prevHead /
+   prevSyncCommitteeHash` are filled **from storage** (`headers[head]`, `head`,
+   `syncCommittees[period(head)]`), **not** from calldata. So the proof can only be a transition *from the
+   contract's current head* — it can't be replayed against a forged starting point. (Comment `:165-166`:
+   "the proof will not verify if they aren't correct.")
+2. **The SNARK is the verifier** (`:181`): `ISP1Verifier(verifier).verifyProof(lightClientVkey,
+   abi.encode(po), proof)` — reverts unless the proof attests the committed public values under the
+   light-client program's verification key. This is the whole authorization: a valid proof == the sync
+   committee really signed this transition.
+3. **Monotonic, checkpoint-aligned** (`:184-195`): `newHead > head` (no reorg backwards / replay) and
+   `newHead % 32 == 0` (checkpoint slot).
+4. **Sync-committee handoff** (`:206-227`): stores the new period's committee only if unset; a provided
+   `nextSyncCommitteeHash` must match any already-stored one (`NextSyncCommitteeMismatch`) — no silent
+   committee swap.
+
+**Verdict: the trust-minimized end of the taxonomy, cleanly built** — authorization is a *cryptographic
+proof of the source chain's own consensus*, bound to the contract's committed state, monotonic, with a
+guarded committee handoff. No committee, no optimistic window, no extra honest-party assumption. **Residual
+(the irreducible trust):** (1) **Ethereum's sync committee** — but that *is* the source chain; trusting it
+is unavoidable and minimal. (2) **SP1 soundness + the program's correctness** — the zkVM and the
+light-client program (the vkey) must be sound. (3) **the guardian** — `updateLightClientVkey` /
+`updateStorageSlotVkey` / `changeGuardian` are **`onlyGuardian`** (`:315-339`); a malicious or compromised
+guardian could swap the vkey for one that accepts forged proofs. **This is the punchline of the whole
+sweep:** even the most trust-minimized bridge keeps a **governance residual** — the upgradeable
+verification key. The cryptography removes the committee; it can't remove the key that can change the
+cryptography. **No finding;** the trust is named — source consensus + proof soundness + the vkey guardian.
+
+---
+
 ## Sweep status (running)
 | # | Bridge | Model | Result |
 |---|---|---|---|
 | B1 | Wormhole | external committee (13/19 Guardian multisig) | clean contract; trust = the 19 Guardians (>1/3 = drain) |
 | B2 | LayerZero v2 | oracle+relayer → configurable DVN set | clean lib; trust = app's DVN choice (use ≥2 independent) + lib owner |
 | B3 | Across v3 | optimistic root-bundle + intent-fill | clean, well-bonded; trust = 1 honest disputer in 2h + bond size + UMA |
+| B4 | Axelar | weighted PoS validator set (separate chain) | clean, hardened multisig; trust = the staked set (≥threshold weight) |
+| B5 | SP1 Helios | zk light client (native proof) | trust-minimized; trust = source consensus + proof soundness + vkey guardian |
 
-**Pattern so far (consistent with the §5b fail-safe-substrate boundary):** in all three, the on-chain
-*code* is clean — the verification predicate is sound, replay is guarded, mint==lock/refund-once. **The
-risk is never the code; it's the named trust root** the code faithfully serves: a committee (Wormhole),
-an app-chosen verifier set (LayerZero), or an optimistic-watcher+oracle (Across). Bridges are the weak
-link not because their contracts are buggy but because **their trust roots are external and human** —
-exactly why the two-question lens puts "who authorizes the mint" first. Next candidates (distinct models):
-**Axelar** (PoS validator set / separate chain) and a **native light-client** bridge (the most trust-
-minimized end of the taxonomy).
+**The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
+**all five**, the on-chain *code* is clean — the verification predicate is sound, replay is guarded,
+mint==lock / refund-once / proof-bound-to-state. **The risk is never the contract; it's the named trust
+root the contract faithfully serves**, and the *only* thing that changes down the taxonomy is **how human
+that root is:**
+- **B5 light-client/zk (best):** trust = the source chain's *own consensus*, checked by a proof. The only
+  human residual is the **vkey-upgrade guardian** — cryptography removes the committee but not the key that
+  can change the cryptography.
+- **B4 PoS set:** trust = a *staked, rotating* validator set (≥threshold weight) — economic + permissionless-ish.
+- **B3 optimistic:** trust = *1 honest watcher within a window* + a correctly-sized bond + a backstop oracle.
+- **B2 configurable DVNs:** trust = *whatever verifier set the app picks* (strong if ≥2 independent, weak if 1).
+- **B1 / appointed committee (worst, most-hacked):** trust = *a fixed appointed multisig* — Ronin, Harmony.
+
+**So "audit the bridge" almost always means "name the trust root and size the residual," not "find the
+contract bug."** Every nine-figure bridge hack was either a *contract* bug in the verification (Wormhole
+2022 signature bypass, Nomad 2022 zero-root) — the class these five have each explicitly guarded — **or** a
+*trust-root* compromise (Ronin 5/9 keys, Harmony 2/5) — the residual that no amount of clean code removes.
+The lens earns its keep by putting **"who authorizes the mint"** first: the contract read tells you the
+code is clean; the *answer to that question* tells you what you're actually trusting. **Five bridges, five
+clean contracts, five named-and-sized residuals; no finding.** Next candidates (to round out the taxonomy):
+a **native rollup bridge** (trust = the rollup's own proof system, governance-gated withdrawals) and a
+**HTLC** path with readable source (the conserve-by-construction end, cf. the Meson note).
