@@ -442,12 +442,19 @@ reconciled the apparent divergence-with-revm by a hypothesis. **Re-reading the a
 function — **reversed the conclusion: both clients subgroup-check, there is no divergence, and no hypothesis was
 ever needed.** The error was reading a *call site* (`require IsOnCurve`) without opening the *function* — the
 exact `recompute-don't-trust-the-summary` failure the corpus is built to catch, caught here in the corpus's own
-output, exactly as MemeCore Pass 6 corrected its own earlier notes. The re-audit also **confirmed** (by
-re-reading the functions, not the call sites) the two `state-sync/` outliers — Prysm's body-root-only checkpoint
-binding and Erigon's registry trust — as accurate, low-severity, operator-bounded hardening gaps, each with a
-named fix. **Net result of the full-stack + re-audit pass: still one genuine finding in the entire corpus
-(MemeCore); every other system a sound floor + a named residual; and one corrected summary that proves the
-method works on its own work.**
+output, exactly as MemeCore Pass 6 corrected its own earlier notes. The re-audit pass re-opened **five** flagged items by reading the *functions*, not the call sites: of the
+five, **only the one I had explicitly flagged as a *hypothesis* (alt_bn128) was wrong** — and it was my error,
+not an agent's — while every agent-reported claim I re-checked verified accurate: Prysm's body-root-only
+checkpoint binding (**confirmed**), Erigon's registry trust (**confirmed, and *refined*** — it is registry-
+trust-at-import *backstopped by* a fail-safe execution root check that halts rather than accepts a bad
+snapshot), c-kzg's commitment+proof subgroup checks and canonical-field check (**confirmed** —
+`validate_kzg_g1` does `blst_p1_in_g1`, `bytes_to_bls_field` rejects `≥ modulus`), and Omni's missing slasher
+(**confirmed** — `0` slash references in the whole `avs/` dir). The pattern is itself a result: **the errors
+clustered exactly where I had stopped recomputing** — a one-line summary I'd glossed — and re-applying the rule
+fixed it, while the things I *had* verified, and the things sub-agents reported that I re-verified, held.
+**Net result of the full-stack + re-audit pass: still one genuine finding in the entire corpus (MemeCore);
+every other system a sound floor + a named residual; one corrected summary and one refined one — the method
+demonstrated, and corrected, on its own work.**
 
 ---
 
