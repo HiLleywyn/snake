@@ -723,6 +723,93 @@ far fewer.
 
 ---
 
+## B15. Bitcoin-side pegs & L2 bridges — the axis EVM doesn't have: *does the chain verify Bitcoin itself?*
+**Targets (3 parallel sweeps + Lombard B14):** Babylon (`x/btclightclient`/`btccheckpoint`/`btcstaking`), Stacks
+sBTC (Clarity + signer), BitVM reference, Citrea Clementine, BOB; tBTC v2 + Nomic in a follow-on pass. Bitcoin
+has no smart contracts, so a BTC bridge faces a question the EVM bridges never do: **the BTC leg can't run
+code, so either the destination chain verifies Bitcoin's *own* consensus (PoW headers + an SPV/Merkle
+inclusion proof) on-chain, or it trusts a signer set to *attest* that the BTC moved.** That axis — *proven vs.
+attested Bitcoin* — is the BTC-specific form of "name your oracle," and it splits this set cleanly. **No
+findings; one rich spectrum.**
+
+**The proven end — the chain verifies Bitcoin on-chain:**
+- **tBTC v2 (the canonical decentralized peg — the reference the LST wrappers should be measured against).**
+  The wrapped-mint is gated by a **genuine SPV proof, not an attestation**: `DepositSweep.submitDepositSweepProof`
+  increases tBTC backing only after `validateProof(sweepTx, sweepProof)` (`DepositSweep.sol:159`), where
+  `BitcoinTx.validateProof` (`:181-225` — confirmed by the sweep) does a Merkle inclusion proof against the
+  header root **plus a coinbase-tx Merkle proof** (the post-2023 fix against the 64-byte-tx forged-coinbase
+  Merkle attack) **plus `evaluateProofDifficulty` against the LightRelay** (which validates real Bitcoin PoW
+  header-chaining + retarget, and blocks the "epoch ends in the future" timestamp downgrade). BTC custody is a
+  **100-member threshold-ECDSA wallet** whose pubkey is only accepted via a **51-of-100 honest-majority DKG
+  with a challenge window** (keep-core `EcdsaDkgValidator.sol:51 groupThreshold = 51`); peg-out
+  (`Redemption.sol`) can only fulfill a **pre-tracked on-chain redemption request** and must **SPV-prove the
+  BTC release** before `bank.decreaseBalance` burns. Trust = honest-majority signer set + relay liveness, and
+  the mint *cannot be forged without a real BTC deposit* — the trust-minimized end of the peg spectrum.
+- **Nomic (SPV + 2/3-by-stake).** `relay_deposit` (`bitcoin/mod.rs:525`) credits nBTC only after a
+  `PartialMerkleTree` proof matches the BTC header's `merkle_root` (`:555-569`), the deposit `script_pubkey`
+  matches the signer-set's `output_script` (`:587-604`), and a **min-confirmation depth** is met — against a
+  header queue that independently validates **real PoW** (`validate_pow`, longest-`chain_work` selection).
+  BTC moves only under a **weighted P2WSH multisig at a 2/3 voting-power threshold** of a quorate validator
+  set; deposits are replay-guarded by `processed_outpoints` ("Output has already been relayed", `:607`).
+  (The sweep noted a *cosmetic* latent issue in legacy-address matching at `mod.rs:590-592` — it **fails
+  closed** (stricter matching, no fund-loss path), itself a small instance of the fail-safe-substrate law.)
+- **Babylon (the gold standard for *on-chain BTC verification*).** Its `x/btclightclient` verifies **real
+  Bitcoin proof-of-work**: header
+  sanity via btcd `CheckBlockHeaderSanity(...PowLimit...)` (`btc_light_client.go:433` — **verified myself**),
+  **cumulative-work fork choice** rejecting any chain with `tipOfNewChain.totalWork.LTE(currentTip.totalWork)`
+  (`:397`, `CalcWork` from `header.Bits`), and BTC stake gated by a **real SPV Merkle inclusion proof**
+  (`VerifyInclusionProof` → `verify` with coinbase/`index==0` handling, `btccheckpoint/types/btcutils.go:144-193`
+  — **verified**) + k-deep depth + a covenant-quorum. Authorities bound to the gov module with covenant-overlap
+  on rotation. Babylon *checks Bitcoin the way an SPV client would* — the trust-minimized way to anchor to BTC.
+- **BOB — SPV relay primitive (scope gap).** The public repo exposes `BitcoinTx.verifySPVProof` (`:190`) — a
+  Merkle proof against a relayed header **plus a coinbase proof of equal length to defeat the 2018 64-byte-tx
+  Merkle weakness** (`:193-212`) + PoW/difficulty — genuinely sound SPV. **But** in this repo the only
+  consumers of `validateProof` are utility/test libs; **the actual BTC-custody mint contract is not in the
+  public repo**, and the relay trusts an **owner-managed authorized-submitter allowlist** (`LightRelay.sol`
+  `onlyOwner` genesis/authorize, permissionless `setAuthorizationStatus(false)` escape). So BOB's *primitive*
+  is proven-Bitcoin, but its live peg trust model (committee vs BitVM) can't be confirmed from source here.
+
+**The fraud-proof middle — 1-of-N honest, with a governance backstop:**
+- **BitVM (reference primitive).** The textbook **1-of-N-honest-challenger** peg: an operator fronts the
+  peg-out and is reimbursed from a pre-signed tx graph; a single honest challenger replays one chunk and
+  broadcasts a `DisproveTransaction` if the operator's committed output hash is wrong, forfeiting its
+  collateral. Winternitz one-time commitments + a deterministic MuSig2-pre-signed graph bind every step.
+  Trust assumption matches the marketing — but the README says **"DO NOT USE IN PRODUCTION"**; no live custody.
+- **Citrea Clementine (the live BitVM2 bridge — and the caution).** A real, audited fraud-proof graph
+  (kickoff → watchtower_challenge → assert → **disprove**, all timelocked) over **N-of-N MuSig2** covenant
+  deposits — so 1-of-N honest holds *for the covenant*. **The residual:** an **M-of-N `SecurityCouncil`**
+  (`deposit.rs:254-256` `threshold: u32` — **verified myself**) is an **alternate spend path on every deposit**
+  (`Multisig::from_security_council`, `deposit.rs:212-216`) that can **emergency-unlock deposits and rotate
+  the N-of-N signer set**. The BitVM machinery is genuine, but **the council is the practical trust root
+  behind the "trust-minimized" framing** — exactly the B5/B6/B11 pattern (a governance key over the proof
+  machinery), now on Bitcoin.
+
+**The attested end — a signer set vouches for BTC, no on-chain proof:**
+- **Stacks sBTC.** Mint/withdraw are authorized **purely by a WSTS/FROST threshold-signer attestation** — the
+  Clarity contract checks **`(asserts! (is-eq ... current-signer-principal) tx-sender)`** (`sbtc-deposit.clar:44`
+  — **verified myself**) and replay/dust/anti-fork, but **verifies no Bitcoin SPV proof at all**; the BTC check
+  happens *off-chain inside the trusted signer's bitcoind*. The signer set **self-rotates** and can **hot-swap
+  the protocol contracts** (`update-protocol-contract-wrapper`). Documented model, but materially weaker than
+  Babylon/tBTC: conservation is a signer-honesty assumption, not a proof.
+- **Lombard LBTC (B14) — the high-TVL custodial extreme.** A weighted consortium **attests** custodial BTC
+  deposits (no on-chain BTC proof), plus a Bascule second-attestation and `MINTER_ROLE` direct-mint paths.
+  The most-trusted, highest-TVL, and lowest-on-chain-verification of the set.
+
+**Verdict: the Bitcoin side recapitulates the entire taxonomy, plus one new axis — *proven vs. attested
+Bitcoin*.** Babylon (real PoW+SPV on-chain) and BOB's SPV primitive sit at the proven end; BitVM/Clementine
+add a 1-of-N fraud proof (with Clementine's SecurityCouncil as the governance residual); sBTC and Lombard sit
+at the attested end (a signer set or consortium vouches for BTC the chain never checks). **The single
+BTC-specific lesson:** because Bitcoin can't run the verifier, the safest pegs **bring Bitcoin's consensus to
+the destination chain as a proof** (Babylon, tBTC-style SPV), and the convenient high-TVL ones **replace that
+proof with a committee's word** (sBTC, Lombard) — the same proven-vs-attested gap that separated IBC from
+Gravity in Cosmos (B13a), now on the asset with the most value and the least on-chain expressiveness. **No
+finding in any of the 7 BTC systems read.** And the punchline writes itself: **tBTC proves the BTC deposit
+with an SPV proof + a 51/100 verifiable wallet; Lombard — with far more TVL — replaces that proof with a
+consortium's signature.** The market has mostly bought the attested end; the proven end (tBTC, Babylon) is
+where the cryptography actually lives.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -771,6 +858,7 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B12 | HTLC atomic swap | conserve-by-construction (hashlock + timelock) | **no authorizer at all**; conservation by binary state machine; residual = liveness only |
 | B13 | Non-EVM ×20 (Solana·Cosmos·Move) | guardians / stake-committee / attesters / light-client | all clean; **substrate makes conservation structural** (Move types, Solana PDAs, x/bank); IBC top-tier, Gravity the caution |
 | B14 | Lombard LBTC | BTC-LST consortium wrapper (off-chain attestation) | sig check correct, but **no on-chain BTC proof**; trust = consortium + custodians + Bascule + MINTER_ROLE (high TVL) |
+| B15 | Bitcoin-side ×7 (tBTC·Nomic·Babylon·sBTC·BitVM·Clementine·BOB) | proven-vs-attested Bitcoin spectrum | tBTC/Nomic/Babylon **verify real BTC PoW+SPV**; sBTC/Lombard **attest**; Clementine = BitVM + SecurityCouncil residual |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
@@ -793,13 +881,14 @@ a *trust-root* compromise (Ronin 5/9 keys, Harmony 2/5, Multichain MPC keys) —
 clean code removes. The lens earns its keep by putting **"who authorizes the mint"** first: the contract read
 tells you the code is clean; the *answer to that question* tells you what you're actually trusting.
 
-**The tally after the full sweep:** **~43 bridge systems** — **13 deep reads (B1–B13; B11 = 6 canonical
-L1↔L2 bridges, B13 = 20 non-EVM programs across Solana/Cosmos/Move) + 12 rapid EVM surface sweeps** —
-spanning **every row of the taxonomy** from HTLC (no authorizer) and first-party issuer and native-proof down
-to off-chain-bare-role, and now across **four substrates** (EVM, SVM, Cosmos-SDK, Move). **Every single
-contract's verification is clean** (sound predicate, replay guard, conservation); **not one exploitable
-finding.** The variance is *entirely* in the trust root, and the deep reads added three refinements the
-original six-row table didn't have:
+**The tally after the full sweep:** **~51 bridge systems** — **15 deep reads (B1–B15; B11 = 6 canonical
+L1↔L2 bridges, B13 = 20 non-EVM programs across Solana/Cosmos/Move, B15 = 7 Bitcoin-side pegs) + 12 rapid EVM
+surface sweeps** — spanning **every row of the taxonomy** from HTLC (no authorizer) and first-party issuer and
+native-proof down to off-chain-bare-role, across **five substrates** (EVM, SVM, Cosmos-SDK, Move, Bitcoin) and
+the BTC-specific *proven-vs-attested* axis. **Every single contract's verification is clean** (sound predicate,
+replay guard, conservation); **not one exploitable finding** (the only latent issue found — Nomic legacy-address
+matching — *fails closed*). The variance is *entirely* in the trust root, and the deep reads added four
+refinements the original six-row table didn't have:
 - **B9 marginal trust** — trust-minimality is *relative to what you already hold*. Circle CCTP is fully
   centralized yet adds **zero** trust for USDC (issuer == attester), beating every third-party wrapped bridge.
 - **B10 the multisig can live in the cryptography** — Chainflip's *one* on-chain Schnorr signature is a >2/3
@@ -810,6 +899,12 @@ original six-row table didn't have:
   types make it a compiler guarantee, Solana one-shot PDAs make replay an account-existence guarantee, Cosmos
   x/bank makes it a module guarantee). The trust model is portable; the fail-safe substrate is not — it
   *deepens*.
+- **B15 proven vs. attested Bitcoin** — when the source asset can't run the verifier (BTC), the safest pegs
+  bring Bitcoin's *own* consensus to the destination chain as an on-chain **proof** (tBTC's SPV+coinbase
+  Merkle proof + 51/100 wallet, Babylon's PoW headers, Nomic's SPV) while the convenient high-TVL ones replace
+  that proof with a **committee's attestation** (sBTC, Lombard). It's the IBC-vs-Gravity gap again, on the
+  asset with the most value and the least on-chain expressiveness — and the market mostly bought the attested
+  end.
 
 **The single sentence the whole sweep proves, now measured on ~23 bridges:** *the contract is never the weak
 link — the trust root is,* and going down the taxonomy you don't remove the trust, you only make it **less
