@@ -42,7 +42,7 @@ validator-set, bridge seam, or issuer named per row.
 | 11 | TRON (TRX) | L1 DPoS | account (no cap, resource-burn floor, net-deflationary) | DPoS (≥70% of **27 Super Representatives**) | **validator centralization — very small N (27)** + the electing cartel/Foundation | rapid ⚠ |
 | 12 | Avalanche (AVAX) | L1 (3-chain) | UTXO (AVM) | Avalanche (repeated subsampled vote) | >80% stake (the safety threshold) | deep |
 | 13 | Chainlink (LINK) | oracle (on Eth) | n/a (ERC-20) | n/a | the OCR DON + the per-feed node set | sweep (validator-ops, CCIP) |
-| 14 | Shiba Inu (SHIB) | ERC-20 (+ Shibarium L2) | account (host); Shibarium PoS | host chain; Shibarium PoA/PoS | the host chain; Shibarium validators | _pending_ |
+| 14 | Shiba Inu (SHIB) | ERC-20 + Shibarium L2 | account (SHIB inherits Ethereum's floor); Shibarium = Heimdall/Bor PoS | host **Ethereum** (token) + **Shibarium** validator set (L2) | SHIB has no own floor (ERC-20); Shibarium = small-validator-set L2 + the SHIB↔Shibarium bridge | rapid |
 | 15 | Bitcoin Cash (BCH) | L1 PoW | UTXO, 21M cap | SHA-256d PoW (+ ASERT DAA) | **rentable BTC-pool hashrate** — structurally cheap 51% (small slice of SHA-256) | rapid |
 | 16 | Polkadot (DOT) | L0 relay | Substrate Imbalance (type floor) | BABE + GRANDPA (NPoS) | the validator set; governance (OpenGov) | deep |
 | 17 | Litecoin (LTC) | L1 PoW | UTXO + MWEB (homomorphic) | Scrypt PoW | 51% hashrate | deep |
@@ -81,28 +81,68 @@ validator-set, bridge seam, or issuer named per row.
 | 50 | IOTA | L1 Move (post-Rebased) | **Move-resource ledger** (objects can't dup) | **Mysticeti DPoS** (~150, >2/3), <0.5s final | nascent permissionless set + Foundation stake (Coordinator just removed) | rapid |
 | 51 | Flare (FLR) | L1 EVM + oracles | EVM account, fee burn | Avalanche **Snowman++** PoS | **enshrined oracle/attestation** (FTSO + State Connector) — the dApp residual | rapid |
 | 52 | Waves | L1 LPoS | capped 100M (+ **USDN algo-stable** value hazard) | LPoS (Waves-NG, ~2s gadget) | stake-leader concentration + **Gravity bridge + Neutrino** (de-peg history) | rapid ⚠ |
+| 53 | Bittensor (TAO) | L1 DePIN/AI | account (21M cap, halving) | Subtensor PoS (Substrate) + **Yuma Consensus** scoring | **subjective validator scoring** gates reward-mint (attestation-not-proof) + root subnet | rapid |
+| 54 | Render (RNDR) | DePIN (Solana) | burn-mint-equilibrium (render-work burns RNDR) | host (Solana) | **off-chain proof-of-render** (job verification attested, not proven) + foundation | rapid |
+| 55 | Helium (HNT) | DePIN (Solana) | account (HNT→Data Credits burn; PoC mint) | host (Solana) | **proof-of-coverage** oracle — historically *gameable* (attestation-not-proof) | rapid ⚠ |
+| 56 | The Graph (GRT) | indexing (Eth/Arb) | account (indexing rewards minted; query fees) | host | indexer/curator economic game + the **Arbitrator** (dispute resolution) | rapid |
+| 57 | Flow (FLOW) | L1 | **Cadence resource types** (Move-like linear) | multi-role HotStuff (collect/consensus/exec/verify) | the multi-role node sets + foundation (node-operator permissioning) | rapid |
+| 58 | Moonbeam (GLMR) | Polkadot parachain | account EVM | **Polkadot shared security** (collators + relay validators) | relay-chain validators (inherited) + the collator set | rapid |
+| 59 | Astar (ASTR) | Polkadot parachain | account (EVM+WASM) | Polkadot shared security + collators | relay validators + collators + dApp-staking governance | rapid |
+| 60 | Kujira (KUJI) | L1 Cosmos | x/bank (+ USK over-collat stablecoin) | Tendermint BFT (>2/3) | the validator set + its own DeFi (FIN/USK) collateral | rapid |
+| 61 | Story (IP) | L1 Cosmos+EVM | account | CometBFT PoS (>2/3) | validator set + **off-chain IP/licensing attestation** (the IP graph) | rapid |
+| 62 | Jupiter (JUP) | DEX aggregator (Solana) | n/a (routes AMMs; no pooled custody) | host (Solana) | governance + (Jupiter **Perps** = oracle + JLP pool, GMX-class) | rapid |
+| 63 | Cronos (CRO) | L1 Cosmos-EVM | account | Ethermint/Tendermint PoS (>2/3) | the validator set + Crypto.com governance | sweep (largecap) |
+| 64 | Kaspa (KAS) | L1 blockDAG PoW | UTXO + **GHOSTDAG** ordering | kHeavyHash PoW (parallel blocks) | 51% hashrate (the DAG ordering is canonicalize-before-consensus) | deep |
+| 65 | Arbitrum (ARB) | L2 optimistic | account; withdrawal = confirmed node | **BoLD fraud proof** + 7d window | the dispute-game system + Security Council | sweep (bridges B11) |
+| 66 | Filecoin (FIL) | L1 storage | account + **storage-collateral** | Expected Consensus (PoSt) | the storage-proof (PoRep/PoSt) + the actor governance | deep |
+| 67 | Algorand (ALGO) | L1 Pure-PoS | **`totals.All()` recomputed invariant** | PPoS (VRF sortition), no fork | >2/3 of *online* stake (the VRF + the relays) | deep |
+| 68 | Cosmos Hub (ATOM) | L1 | **x/bank** (conserve-by-construction) | Tendermint BFT (>2/3) | the validator set + IBC counterparties | deep + sweep |
+| 69 | Optimism (OP) | L2 optimistic | account (lock-release via ETHLockbox) | **fault proof (Cannon)** + 7d + Security Council | the dispute-game + the Council (vkey/governance) | deep + sweep (B6) |
+| 70 | Injective (INJ) | L1 Cosmos | x/bank | Tendermint BFT (>2/3) | validator set + the (partly off-chain) orderbook | deep |
+| 71 | Sonic (S) | L1 DAG | account | **Lachesis aBFT** (DAG, sortedArray canonicalize) | the validator set | sweep (largecap) |
+| 72 | Hedera (HBAR) | L1 | **zero-sum journal** invariant | Hashgraph aBFT (gossip-about-gossip) | the **Governing Council** (permissioned ~30 enterprises) | deep |
+| 73 | Stacks (STX) | L1 (BTC-anchored) | **caller-scoped post-conditions** | PoX (Nakamoto, anchored to Bitcoin) | the sBTC signer set + the BTC anchor | sweep (state-sync, sBTC) |
+| 74 | Sei (SEI) | L1 parallel-EVM | account + **OCC** ordered-commit | Tendermint BFT (>2/3) | the validator set | deep |
+| 75 | Tezos (XTZ) | L1 | **typed source/sink** conservation | Tenderbake (LPoS) | bakers (>2/3) + **self-amendment governance** | deep |
+| 76 | Polygon zkEVM | L2 ZK | account; claim vs proven exit root | **validity (ZK) proof** + verifier | the verifier-upgrade governance (RBAC/timelock) | sweep (bridges B11) |
+| 77 | EOS / Vaulta (EOS) | L1 DPoS | **RAM Bancor** + account | DPoS (**21 Block Producers**) | the 21 BPs | deep |
+| 78 | Pyth (PYTH) | pull oracle | n/a | n/a (Solana/Pythnet) | the publisher set + Wormhole guardians (the attestation) | sweep (validator-ops) |
+| 79 | Starknet (STRK) | L2 ZK (Cairo) | account; withdraw via proven message | **STARK validity proof** | the STARK verifier (in StarknetCore) + governance | sweep (bridges B11) |
+| 80 | Berachain (BERA) | L1 | account + **Proof-of-Liquidity** | BeaconKit/CometBFT (>2/3) | the validator set + the PoL emission/bribe market | deep |
+| 81 | Celestia (TIA) | L1 DA | account + **DAS** (data-availability sampling) | Tendermint BFT (>2/3) | the validator set; DA = sample-or-fraud-proof (Blobstream = committee) | sweep (DA, S7/B21) |
+| 82 | Mina (MINA) | L1 succinct | account + **recursive-SNARK** state (~22 KB) | Ouroboros Samasika PoS | the SNARK soundness + the prover + >50% stake | deep |
+| 83 | Worldcoin (WLD) | identity (World Chain) | account + **Orb proof-of-personhood** (ZK tree) | host (OP-stack) | the **Orb operator** (off-chain biometric) + the ZK Semaphore tree | deep |
+| 84 | THORChain (RUNE) | L1 cross-chain | continuous-pool + **TSS vaults** (native assets) | Tendermint BFT (>2/3) | the validator **TSS** (vault control, >2/3 keyshare) | sweep (midcap, bridges) |
+| 85 | Osmosis (OSMO) | L1 Cosmos DEX | x/bank + superfluid | Tendermint BFT (>2/3) | the validator set + the AMM/superfluid invariants | deep + sweep |
+| 86 | Monad (MON) | L1 parallel-EVM | account + **OCC** ordered-commit | **MonadBFT** (>2/3, `2/3+1`) | the validator set | deep |
+| 87 | Namada (NAM) | L1 privacy | **MASP** shielded (homomorphic) | CometBFT PoS (>2/3) | the MASP crypto + validator set | deep |
+| 88 | Penumbra (UM) | L1 privacy | shielded (ZK amounts) | Tendermint BFT (>2/3) | the ZK soundness + validator set | deep |
+| 89 | Aleo (ALEO) | L1 ZK | account + **snarkVM** (ZK execution) | AleoBFT (Bullshark-like) | the prover/coinbase puzzle + the ZK + validators | deep |
+| 90 | Aztec | L2 ZK privacy | shielded notes (ZK) | **validity proof** + sequencer | the proof + the sequencer/governance | deep |
+| 91 | Base | L2 optimistic | account (OP-stack) | **fault proof** + 7d + Security Council | the dispute-game + Coinbase/Council | deep + sweep |
+| 92 | Scroll | L2 ZK | account; withdraw vs proven root | **validity (ZK) proof** (withdrawRoot = public input) | the verifier-upgrade governance | sweep (bridges B11) |
+| 93 | zkSync Era (ZK) | L2 ZK | account; finalize vs executed-batch root | **validity (ZK) proof** (verify→execute→withdraw) | the verifier-upgrade governance (CTM + timelock) | sweep (bridges B11) |
+| 94 | EigenLayer (EIGEN) | restaking (Eth) | n/a (restaked ETH) | n/a (AVS layer) | the **AVS slashing** (only as real as the slasher wired) + Eth | sweep (validator-ops B19) |
+| 95 | Synthetix (SNX) | DeFi synths (Eth/OP) | **debt-pool** invariant (pooled-counterparty) | host | **oracle** (price feeds) + governance (the SCCP/SIP) | sweep (midcap) |
+| 96 | Curve (CRV) | AMM (Eth+) | **StableSwap** invariant (per-pool self-conserving) | host | governance (the gauge/admin) + oracle (for lending) | sweep (midcap) |
+| 97 | Compound (COMP) | DeFi money market | per-position collateral-factor invariant | host | **oracle** + governance (the Timelock) — *donation-attack class noted* | sweep (midcap) |
+| 98 | Pendle (PENDLE) | yield tokenization | PT/YT split (principal+yield = asset) | host | **oracle** (the yield-source rate) + governance | sweep (midcap) |
+| 99 | Reserve (RSR) | DeFi stablecoin | **RToken basket** over-collateralization | host | the basket composition + governance (the RSR backstop) | sweep (midcap) |
+| 100 | Canton (CC) | L1 privacy/RWA | privacy-enabled ledger (sub-transaction privacy) | **Splice/CometBFT** (super-validators) | the **super-validator** set + the closed app-provider domains | deep |
 
 ---
 
-## Coverage & gap plan
+## Coverage
 
-**Already covered (deep or via-sweep), ~50+:** the rows above plus — Cronos, Kaspa, Arbitrum, Filecoin,
-Algorand, Cosmos/ATOM, Optimism, Injective, Sonic/Fantom, Hedera, Stacks, Sei, Tezos, Polygon-zkEVM, EOS,
-Pyth, Starknet, Berachain, Celestia, Mina, Worldcoin, THORChain, Osmosis, Namada, Penumbra, Aztec, Aleo, Base,
-Scroll, zkSync, Meson, MemeCore, Monad, Marinade/Drift/marginfi/Meteora (Solana DeFi), DeXe, Curve/Compound/
-Pendle/EigenLayer/GMX/Synthetix/Liquity/Alchemix/Reserve (midcap sweep), Celo, Mantle.
-
-**Gaps to fill to 100 (~40, rapid lens-pass each):** Dogecoin, TRON, BCH, ETC, Render, VeChain, The Graph,
-Immutable, Theta, Bittensor (TAO), Maker/Sky, Aave, Flow, Quant, MultiversX (EGLD), Gala, Aerodrome, Jupiter,
-Ondo, Kava, Helium (HNT), Ethena (ENA), Raydium, Conflux, Dash, Decred, Nervos (CKB), IOTA, Neo, Waves,
-Chiliz, dYdX, Kujira, Oasis (ROSE), Moonbeam, Astar, Kaia (Klaytn), Flare, Gnosis (GNO), Linea, Blast,
-Pancakeswap, Lido (LDO), Bittensor, Story, Sonic.
-
-*(Rapid-audit entries land below as the parallel passes complete; each gives floor + consensus + residual.)*
+**100 of 100 rows filled.** Depth split: **deep** (dedicated report) + **sweep** (layer-sweep entry) for the
+~55 already-audited chains/protocols; **rapid** (docs/spec/incident-history lens-pass) for the ~45 added here to
+complete the top-100. Beyond the 100, the corpus also covers chains/protocols that didn't make a top-100 row but
+appear in the sweeps (Meson, Canton/Splice, Marinade/Drift/marginfi/Meteora, DeXe, Liquity/Alchemix, Mantle,
+Celo, Polkadot relay, etc.) — see [`README.md`](README.md) for the full index.
 
 ---
 
-## Rapid lens-passes (filling 26–100)
+## Rapid lens-pass notes (per batch) — how the gap rows were characterized
 
 ### Batch 1 — PoW / UTXO family (rows 8, 15, 26–33) ✅
 The lens surfaced **real, historically-confirmed finding-classes** (defensive, characterized — no exploit):
@@ -153,5 +193,55 @@ The defining residual in this family is **how few, and how known, the validators
   newest code paths, least battle-testing.
 *Docs/spec-derived (Medium confidence); validator counts are active-set/cap figures that drift with governance.*
 
-### Batch 4 — new L1/L2/DePIN — _in flight_
-(Bittensor, Render, Helium, The Graph, Flow, Moonbeam, Astar, Kujira, Story, Jupiter.)
+### Batch 4 — new L1/L2/DePIN/appchain (rows 53–62) ✅
+The novel residual here is the **DePIN attestation gap** — *is the reward-minting gated by a real proof, or by an
+off-chain attestation of physical work?* — almost always the latter:
+- **Bittensor** (subjective **Yuma** validator scoring decides miner rewards), **Helium** (**proof-of-coverage**,
+  historically *gameable*), **Render** (off-chain render-job verification) — the DePIN reward is **attested, not
+  proven**, which is the `bridges/`-style "proven vs. attested" axis at the *minting* layer. **The Graph** is the
+  cleaner case (disputes resolved by an Arbitrator). **Story** adds off-chain IP/licensing attestation.
+- **Parachains** (Moonbeam, Astar) inherit **Polkadot relay-chain security** — the residual is the relay validators,
+  not the parachain. **Flow** uses Cadence resource types (a Move-like linear floor) with a multi-role node split.
+  **Kujira** is standard Cosmos BFT + its own collateral. **Jupiter** is a Solana aggregator (no custody) whose only
+  sharp residual is Jupiter Perps' oracle (GMX-class).
+
+### Rows 63–100 — the already-deep-audited corpus, folded in ✅
+Rows 63–100 are the **chains/protocols already given a dedicated report or layer-sweep entry** (linked in
+`README.md`): the conservation-mechanism families (UTXO/DAG, x/bank, Move-linear, checked-invariant, zero-sum
+journal, RAM-Bancor, recursive-SNARK, MASP/ZK-shielded, storage-collateral, caller-scoped post-conditions), the
+rollups (validity vs. fraud proof + the verifier/Council governance ceiling), the privacy chains, and the DeFi
+midcap sweep. Each row's depth column points at where the full read lives.
+
+---
+
+## The 100, synthesized — what a top-100 audit through one lens actually shows
+
+**Conservation floor:** sound almost everywhere, and it comes in a small number of *kinds* — UTXO/DAG (BTC, BCH,
+DOGE, LTC, Kaspa, Dash, Decred, Zcash, Nervos, Ravencoin), account+state (the EVM/BFT L1s), **type-enforced** (Move:
+Aptos/Sui/IOTA; Cadence: Flow; linear types make conservation a *compiler* guarantee), **checked-invariant** (Algorand
+`totals.All()`, Hedera zero-sum, XRPL/Stellar), **conserve-by-construction** (Cosmos x/bank), **homomorphic/ZK**
+(Monero, Zcash, Namada, Penumbra, Mina), **issuer-fiat** (USDT, USDC), and **collateral invariants** (the DeFi rows).
+
+**The variance is *always* the residual — and it sorts into exactly the corpus's classes:**
+1. **Hashrate / stake concentration** — the PoW small-coins (ETC, BCH, Ravencoin have *realized* 51%), the small-N
+   BFT/DPoS sets (TRON 27, EOS 21, Neo ~7, the permissioned councils).
+2. **Governance ceiling** — the rollup verifier-upgrade keys + Security Councils, the DeFi admin/timelocks, the
+   treasury/dev-fund keys, ICP's NNS, Tezos self-amendment.
+3. **Oracle / attestation seam** — the DeFi oracles (Aave, GMX, Compound, Synthetix), the DePIN proofs-of-physical-work
+   (Helium, Render, Bittensor), Flare's enshrined oracles, the pull oracles (Pyth).
+4. **Bridge / cross-chain & custodian** — the wrapped-asset bridges, Lombard-class custody, Ondo/Ethena off-chain
+   backing, Waves's Gravity bridge, the TSS vaults (THORChain).
+5. **Hardware / proof root** — Oasis's SGX, the ZK chains' proof soundness + the trusted setup (Zcash legacy).
+
+**The one genuine finding remains MemeCore.** Across 100 coins, the floor held (the historical floor *breaks* —
+Ravencoin asset-inflation, Zcash BCTV14 — were upstream and patched; not found live here), and **every coin reduced to
+a named conservation floor + a residual that is a hashrate/stake threshold, a governance ceiling, an oracle/attestation
+seam, a bridge/custodian, or a hardware/proof root.** No bare "safe"; "trustless" qualified by *trustless-until-whom*
+for all 100. The Hyperliquid Bridge2 duplicate-set item (`bridges/AUDIT-HYPERLIQUID-BRIDGE.md`, Medium/latent, with a
+passive verification tool) is the sharpest *defense-in-depth* residual surfaced, and it corrected a prior over-claim of
+my own — the method, applied to the method.
+
+*Confidence (per capstone §5c): rows with a **deep**/**sweep** depth are source-read; **rapid** rows are
+docs/spec/incident-history derived (Medium) — the incident flags (ETC, Ravencoin, Zcash, GMX, Waves) are the documented
+public record, the consensus/floor families are robust, and live mainnet parameters (validator counts, custodians,
+collateral ratios) drift with governance and should be re-checked against current state before relying on a figure.*
