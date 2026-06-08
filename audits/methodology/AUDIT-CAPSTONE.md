@@ -198,6 +198,26 @@ optimistic-settlement skeleton. *Conservation backstop seen in IBC:* even if the
 the bank-layer underflow guard bounds the blast radius (a chain can't unescrow more than it locked, and
 a Byzantine counterparty can only inflate its *own* voucher denom) — defense-in-depth under the seam.
 
+**Scaled out (the dedicated bridge sweep — `../bridges/AUDIT-BRIDGES-SWEEP.md`):** these four seams were
+the seed of a **~85-system** sweep across five substrates (EVM, SVM, Cosmos-SDK, Move, Bitcoin) and the
+adjacent frontier — bridges, DA layers, oracles, ZK coprocessors, MPC chain abstraction (NEAR), restaking,
+TEE attestation (Intel DCAP), intent settlement, truth oracles, prover markets. **Every contract's
+verification was clean; not one exploitable finding** (the only latent issue, Nomic's legacy-address
+matching, *fails closed*). The variance was *entirely* in the trust root, and the whole spread collapsed
+onto **one axis that generalizes the four seams above: proven vs. attested.** Does the consuming chain
+**recompute** the source's claim (a validity proof, an SPV+PoW check, a re-verified consensus, a
+SNARK-bound block hash) or **trust a summary** of it (a committee signature, a role attestation, a
+custodial consortium's word)? The same split sorts *availability* (Avail proves / Blobstream attests),
+*historical state* (Axiom proves / Herodotus relays), *key custody* (NEAR — the destination verifies
+nothing, trust is the threshold), *cryptoeconomics* (restaking is only "secured" once a slasher is wired),
+and even *hardware* (DCAP is "proven by Intel silicon, attested by Intel that the silicon is secure").
+Three refinements the four-seam table lacked: **marginal trust** (CCTP/first-party-issuer adds *zero* trust
+beyond holding the asset), **the multisig can live in the cryptography** (Chainflip's one Schnorr sig *is* a
+FROST >2/3 threshold), and **the integrator's config is the security** (pull-oracle thresholds settable to
+1). And the unifying observation, made explicit in the sweep's coda and threaded back into
+`AUDIT-REASONER-EPISTEMOLOGY.md §9`: **"proven vs. attested" *is* the reasoner's own "recompute vs. trust
+the summary"** — *a bridge is a summary*, and the taxonomy ranks how much each one bothers to recompute.
+
 ### (g) The determinism / parallel-execution spine (parallel == sequential)
 A second cross-cutting family the expansion confirmed: **OCC + deterministic ordered commit** as the
 universal "concurrent execution equals sequential" design — verified structurally identical across
