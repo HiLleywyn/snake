@@ -106,6 +106,16 @@ Lens: *what must the validator trust, is it minimized or assumed, and can one co
 | [README.md](validator-ops/README.md) | The validator-ops threat model + the "minimize the trust, name the residual" lens |
 | [AUDIT-VALIDATOR-OPS-SWEEP.md](validator-ops/AUDIT-VALIDATOR-OPS-SWEEP.md) | The sweep — mev-boost proposer (V1) + relay (V2), RANDAO/VRF (V3), slashing protection (V4) |
 
+## 🔢 crypto-primitives/ — the verifier's own correctness (precompiles, curves, KZG)
+The bottom of the stack: the EVM precompiles and curve/pairing/KZG ops where **every client must compute
+bit-for-bit identically** (a divergence is a consensus split) and **every malformed input must be rejected the
+same way** (a missing subgroup check is a forgery). Lens: *is every malformed input rejected deterministically
+and identically across clients, and is every computation bounded.*
+| File | What it is |
+|---|---|
+| [README.md](crypto-primitives/README.md) | The primitive-layer threat model (DIVERGE / FORGE / DoS / MALLEABLE) |
+| [AUDIT-CRYPTO-PRIMITIVES-SWEEP.md](crypto-primitives/AUDIT-CRYPTO-PRIMITIVES-SWEEP.md) | The sweep — geth modexp+bn256 (P1), BLS12-381+KZG (P2), reth/revm cross-client consistency (P3) |
+
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
 |---|---|
