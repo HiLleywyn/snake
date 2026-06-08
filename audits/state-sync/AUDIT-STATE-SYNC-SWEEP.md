@@ -183,11 +183,28 @@ sweep's one genuine trust-anchor outlier (not a live exploit).**
     in the sweep**, not a splittable bug.
 
 **Failure modes:** Reth — D/A/C blocked by the commit-gated recompute. Erigon — execution path D/A/C safe via
-recompute+unwind; **the snapshot-import path's safety is the *registry anchor*, not a node-local proof** (so a
-wrong anchor, or an unanchored peer infohash on a custom-network P2P-manifest, is the A/D edge). The
+recompute+unwind; **the snapshot-import path's safety at import is the *registry anchor*, not a node-local
+proof** (so a wrong anchor, or an unanchored peer infohash on a custom-network P2P-manifest, is the edge). The
 constructive mirror: a snapshot bridge is strongest when the node **re-derives** the state root from the
 imported data and checks it against a consensus-anchored header (geth/reth/substrate), rather than trusting
 that the bytes behind a hash are the right *state*.
+
+**Re-audit refinement (read myself, not via summary):** the trust is *registry-at-import + execution-
+backstop*, and the backstop **fails safe.** Snapshot integrity is the BitTorrent **piece-hash** verification
+(`downloader.go:632 VerifyData`) against the preverified `filename→infohash` set
+(`addPreverifiedSnapshotForDownload:1021`, which **never overrides** an already-loaded anchored infohash,
+`:1043-1051`) — confirming there is no state-root recompute *at import*. **But** a wrong snapshot does not
+persist undetected: the first block executed on top recomputes the commitment over the whole state and checks
+it against the **CL-anchored** `header.Root` — `if !bytes.Equal(computedRootHash, header.Root[:])`
+(`exec3.go:779`) → `handleIncorrectRootHashError` → bounded unwind → `ErrTooDeepUnwind` **halt** when the bad
+state is below the unwind horizon (which it is, for a snapshot). The attacker can't forge `header.Root` (the
+header chain is CL-anchored, S8). So the realistic outcome of a wrong registry/peer-infohash is **a halt at
+the first executed block, not silent accept-invalid** — the failure is **S (stall/halt), not A/D**. That
+makes Erigon less of an outlier than "trusts unverified state": it *defers* the state-root check to first
+execution rather than doing it at import, and the deferred check is fail-safe. The residual is the
+**pre-first-execution window** (RPC/queries served off an unverified snapshot before the first block is
+executed) and the registry/asmap-style anchor itself — the genuine, but bounded and fail-safe, difference
+from the verify-at-import clients.
 
 ---
 
