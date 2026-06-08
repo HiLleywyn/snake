@@ -97,6 +97,15 @@ code enforce exactly the safety assumption, and can one actor move fork choice b
 | [README.md](consensus/README.md) | The consensus-safety threat model + the agreement-layer lens |
 | [AUDIT-CONSENSUS-SWEEP.md](consensus/AUDIT-CONSENSUS-SWEEP.md) | The sweep — engine API EL↔CL seam (C1), then ETH fork choice, CometBFT, Solana/DAG |
 
+## 🛡️ validator-ops/ — the validator's trust surface beyond consensus
+MEV/PBS relays (Ethereum's one trusted intermediary), randomness/leader-election bias, and key management.
+Threat model: the validator gets **exploited** — robbed of MEV, slashed, key-compromised, or leader-predicted.
+Lens: *what must the validator trust, is it minimized or assumed, and can one counterparty rob/slash it.*
+| File | What it is |
+|---|---|
+| [README.md](validator-ops/README.md) | The validator-ops threat model + the "minimize the trust, name the residual" lens |
+| [AUDIT-VALIDATOR-OPS-SWEEP.md](validator-ops/AUDIT-VALIDATOR-OPS-SWEEP.md) | The sweep — mev-boost proposer (V1) + relay (V2), RANDAO/VRF (V3), slashing protection (V4) |
+
 ## 💧 protocols/ — DeFi apps, identity, governance, tokens
 | File | What it is |
 |---|---|
