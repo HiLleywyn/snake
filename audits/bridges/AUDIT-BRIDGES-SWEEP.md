@@ -810,6 +810,55 @@ where the cryptography actually lives.
 
 ---
 
+## B16. NEAR Chain Signatures — MPC "chain abstraction": no bridge, no mint — a threshold network signs for you on *every* chain
+**Target:** `near/mpc`, `crates/contract/src/{lib.rs, crypto_shared/kdf.rs}`. The most **novel** model in the
+whole sweep, because **it isn't a bridge at all** — there's no wrapped asset, no lock, no mint, no
+conservation to check. Instead a **threshold-MPC network holds a root key**, and a NEAR account
+deterministically controls a key on **every** destination chain (Bitcoin, Ethereum, Cosmos, …) via
+additive key derivation; the network **threshold-signs an arbitrary payload** on the account's behalf, and
+the resulting signature is a *normal* ECDSA/EdDSA signature usable natively on the destination. **Result: the
+on-chain access control is correct (the derivation is bound to the verified caller), and the whole model
+reduces to one trust root — the MPC network's honest threshold.**
+
+**Trust model:** the MPC node set runs threshold ECDSA (CaitSith/Damgård) and EdDSA (FROST). Account
+`alice.near`'s key on a destination chain is `derived_pubkey = root_pubkey + G · tweak`, where
+**`tweak = H(predecessor_account_id, path)`** (`kdf.rs derive_key_secp256k1`: `derived = GENERATOR * tweak +
+public_key`, tweak rejected if `TweakNotOnCurve`). The destination chain sees only a valid signature — it
+verifies nothing about NEAR; **all** the security lives in (a) the MPC threshold and (b) the NEAR contract's
+access control.
+
+**The one security-critical check — and it's correct (verified myself):** the derivation tweak must be bound
+to the *real* caller, or anyone could request a signature under anyone's derived key (the catastrophic bug
+class). In `sign` (`lib.rs:334`), `check_request_preconditions` returns the **`predecessor`** (=
+`env::predecessor_account_id()`, supplied by the NEAR runtime, **unspoofable**), and the request is built as
+**`SignatureRequest::new(domain_id, payload, &predecessor, &path)`** (`:368-373`) — the tweak is derived from
+the *verified caller*, **not** a user-supplied account id. So `alice.near` can obtain signatures under exactly
+the `(alice.near, path)` keys and **no others**. The payload is also validated up front (ECDSA hash →
+scalar-convertible, or valid EdDSA) "because the MPC nodes will fail in an identical way" — the contract and
+the off-chain nodes share one validation, a nice equivalence discipline.
+
+**Why it's novel relative to everything above:** every other entry answers *"who authorizes the mint."* Here
+**there is no mint** — the network just *signs*, and value moves as native transactions on each chain. It's
+the **TSS-vault model (B10) taken to its limit**: instead of one vault key, it's a *programmable family* of
+per-account, per-path keys spanning all chains, with the NEAR contract acting as the on-chain access-control
+layer in front of the threshold signer. Conservation isn't even a category — there's nothing to conserve,
+only keys to guard.
+
+**Verdict: the access-control binding is sound (caller-derived tweak, additive derivation, on-/off-chain
+validation parity), and the design is elegant.** **No finding.** **Residual (and it's the whole ballgame):**
+(1) the **MPC threshold** — if more than the threshold of nodes collude or are compromised, they can sign
+**arbitrary transactions under any derived key on any chain** → drain *every* address chain-signatures
+controls, across all chains at once. This is the TSS-compromise class (cf. B10), but with the **largest
+possible blast radius** in the sweep, since one root key backs keys on every chain for every account. (2) the
+**node-set membership / resharing** governance and the **contract upgrade** authority — whoever controls
+those controls who is in the threshold. The lesson it adds: **"name your oracle" generalizes past bridges
+entirely** — when a threshold network can sign *anything* for you, the destination chain verifies *nothing*,
+and the entire trust collapses onto the signer set's honesty + the one on-chain check that binds keys to
+their owner. That check (use the verified `predecessor`, never a user-supplied account) is the single line
+the whole system rests on, and NEAR gets it right.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -859,6 +908,7 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B13 | Non-EVM ×20 (Solana·Cosmos·Move) | guardians / stake-committee / attesters / light-client | all clean; **substrate makes conservation structural** (Move types, Solana PDAs, x/bank); IBC top-tier, Gravity the caution |
 | B14 | Lombard LBTC | BTC-LST consortium wrapper (off-chain attestation) | sig check correct, but **no on-chain BTC proof**; trust = consortium + custodians + Bascule + MINTER_ROLE (high TVL) |
 | B15 | Bitcoin-side ×7 (tBTC·Nomic·Babylon·sBTC·BitVM·Clementine·BOB) | proven-vs-attested Bitcoin spectrum | tBTC/Nomic/Babylon **verify real BTC PoW+SPV**; sBTC/Lombard **attest**; Clementine = BitVM + SecurityCouncil residual |
+| B16 | NEAR Chain Signatures | MPC chain abstraction (no bridge/mint) | access-control sound (caller-derived tweak); trust = MPC threshold, **largest blast radius** (every chain, every account) |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
