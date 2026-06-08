@@ -429,6 +429,114 @@ trust-minimality is **relative to what you already hold**, not absolute.
 
 ---
 
+## B10. Chainflip — TSS vault: off-chain threshold-Schnorr, **one** on-chain aggregate signature, native assets (no mint)
+**Target:** `chainflip-io/chainflip-eth-contracts`, `KeyManager.sol` + `Vault.sol` + `abstract/SchnorrSECP256K1.sol`.
+The **TSS-vault** archetype (the THORChain/Multichain-MPC family): a rotating validator committee runs
+**threshold-Schnorr (FROST) off-chain** to produce a **single aggregate signature**, and native assets sit
+in a **vault** that pays out against that one signature — **no minting anywhere.** **Result: a clean,
+carefully-built contract; the threshold check is off-chain by design, so on-chain the trust is the one
+aggregate key, backstopped by a governance key.**
+
+**Trust model:** the chain holds **one `_aggKey`** (a secp256k1 Schnorr pubkey) representing the whole
+validator set's combined threshold key. Every vault outflow is authorized by **one Schnorr signature** from
+that key — the >2/3 threshold is enforced *off-chain* in the FROST signing ceremony, so the on-chain
+footprint is a single verification, not an m-of-n loop (contrast Axelar B4, which does the weighted multisig
+*on-chain*).
+
+**Authorization (`Vault.transfer :155` → `consumesKeyNonce` → `KeyManager._consumeKeyNonce :54`):**
+- Every outflow (`transfer`, `allBatch`, `transferBatch`, `fetchBatch`) carries
+  `consumesKeyNonce(sigData, keccak256(this.transfer.selector, transferParams))` (`:165`) — the signature
+  must cover the **exact call selector + params.**
+- `_consumeKeyNonce`: `verifySignature(msgHash, sig, aggKey.pubKeyX, parity, kTimesGAddress)` (`:58`) +
+  **nonce replay** `require(!_isNonceUsedByAggKey[nonce])` then set (`:61-64`).
+- **Replay binding is strong** (`consumeKeyNonce :80-84`): the signed `msgHash` =
+  `keccak(contractMsgHash, nonce, msg.sender, block.chainid, address(this))` — bound to the **caller, chain,
+  and contract**, so a signature can't be replayed across chains, contracts, or callers.
+- **Schnorr core** (`SchnorrSECP256K1.verifySignature`): guarded against the `ecrecover`-abuse edge cases —
+  `signingPubKeyX < HALF_Q` (`:109`), `signature < Q` (`:111`), and **forbids trivial inputs that would make
+  `ecrecover` return `0x0`** (`:113-119`). This is the well-known "ecrecover-as-Schnorr-verifier" trick,
+  implemented with its standard hardening.
+
+**Conservation:** **native assets in a vault — no mint, no wrapped token.** Outflow ≤ what the vault holds;
+the conservation floor is vault solvency (like THORChain's Asgard vaults), and the cross-chain accounting is
+the State Chain's job, not an on-chain mint==lock check.
+
+**Key rotation / governance ceiling (the backstop, cleanly separated):**
+- **`setAggKeyWithAggKey` (`:94`):** the *current* agg key signs to rotate to the next epoch's agg key — the
+  normal validator-set rotation, self-authorized.
+- **`setAggKeyWithGovKey` (`:113`):** the **governance key** can rotate the agg key, **but only after
+  `timeoutEmergency`** — an emergency recovery path for when the validator set goes dark (liveness backstop),
+  time-gated so it can't front-run a live committee.
+- Plus a community/suspend key (`onlyNotSuspended` guards every outflow).
+
+**Verdict: a clean, well-hardened TSS-vault bridge** — single aggregate-Schnorr authorization with strong
+caller/chain/contract/nonce replay binding, the Schnorr verifier hardened against the `ecrecover→0` trap,
+native-asset vault (nothing to over-mint), and an emergency gov backstop that's *timeout-gated* rather than
+unilateral. **No finding.** **Residual (the irreducible trust):** (1) the **aggregate key** — i.e. >2/3 of
+the validator set; if enough validators collude or the threshold key is reconstructed, the vault drains
+(the TSS-compromise class — this is the *same* trust shape as a PoS set, just with the threshold enforced
+off-chain and the funds native-in-vault). (2) the **govKey** emergency backstop (time-gated, but it *can*
+rotate the agg key — the governance ceiling, congruent with B5's vkey-owner and B6's Security Council).
+The lesson it adds: **a single on-chain signature can still be a >2/3 threshold** — the absence of an m-of-n
+loop on-chain doesn't mean centralization; the multisig moved *into the cryptography* (FROST). To audit it
+you must look *past the contract* (which only sees one key) to the **off-chain signing protocol**, which is
+exactly where the "name your oracle" discipline points.
+
+---
+
+## B11. Native canonical L1↔L2 bridges (6 rollups/sidechains) — the proof-gated end, with one instructive outlier
+**Targets:** zkSync Era (`matter-labs/era-contracts`), Starknet StarkGate (`starknet-io/starkgate-contracts`),
+Scroll (`scroll-tech/scroll-contracts`), Arbitrum Nitro (`OffchainLabs/nitro-contracts`), Polygon
+zkEVM/Agglayer (`0xPolygonHermez/zkevm-contracts`), Polygon PoS (`0xPolygon/pos-contracts`). The **native
+proof** family — the canonical bridge of each chain, where the L1 withdrawal should gate on the L2's *own*
+proof system. **Result: five of six gate withdrawals on a verified proof with no bypass — including the
+permissionless escape hatches; the sixth (Polygon PoS) is a checkpoint *sidechain* whose withdrawals rest on
+a validator-quorum signature, not a proof — the one genuinely weaker trust root, and it's by design.**
+
+**The five proof-gated bridges (each traced from `finalizeWithdrawal`/`claim` back to a proof):**
+- **zkSync Era** — `L1Nullifier._finalizeDeposit` (replay-guarded `isWithdrawalFinalized`) → `_verifyWithdrawal`
+  → `proveL2MessageInclusion` → `Mailbox._proveL2LeafInclusion`: **`if (batchNumber > totalBatchesExecuted)
+  revert`** and root match; `l2LogsRootHashes` is written only in `Executor._executeOneBatch`, which reverts
+  `CantExecuteUnprovenBatches` unless `totalBatchesVerified` was advanced by `verifier.verify(...)`. Chain:
+  **verify → execute → withdraw**, tight.
+- **Scroll** — `relayMessageWithProof`: replay guard + `require(isBatchFinalized(batchIndex))` +
+  `WithdrawTrieVerifier.verifyMerkleProof(withdrawRoots(batchIndex), …)`; `withdrawRoots` is written only
+  after `verifyBundleProof(...)` and **`withdrawRoot` is a public input to the proof** — root⇄proof
+  cryptographically bound. Even the **permissionless enforced-mode escape hatch** (`commitAndFinalizeBatch`,
+  callable by anyone when the sequencer stalls) **still calls `verifyBundleProof`** — there is *no* no-proof
+  finalize path.
+- **Polygon zkEVM/Agglayer** — `claimAsset` → `_verifyLeaf` (SMT proof vs `mainnet/rollupExitRoot`,
+  `claimedBitMap` replay guard); `rollupExitRoot` enters the global exit root only via RollupManager **after
+  `verifyProof(...)`**; even `verifyBatchesTrustedAggregator` (role-gated) **still runs the proof** — the
+  role gates *who posts*, never *whether the proof runs*.
+- **Arbitrum Nitro** — `Outbox.recordOutputAsSpent` recomputes the Merkle root and `revert UnknownRoot` if
+  unknown (`spent` bitmap replay guard); `roots` is written only by `confirmAssertionInternal`, reached only
+  after the **BoLD fraud-proof window** (`block.number >= createdAtBlock + confirmPeriodBlocks`) and, if
+  contested, `winningEdge.status == Confirmed`. Nothing executes against an unconfirmed assertion. (The
+  `anyTrustFastConfirmer` is a documented **AnyTrust-only** governance path, not full-rollup.)
+- **StarkGate** — `withdraw` → `consumeMessageFromL2` on the StarknetCore registry, which only holds a
+  message after a **STARK-proof-gated `updateState`**. (Caveat: the verifier lives in the *external*
+  StarknetCore repo not vendored here, so the proof gate itself is one repo away — named, not read.)
+
+**The outlier — Polygon PoS (`pos-contracts`):** withdrawals are authorized by a **Heimdall validator
+checkpoint signature, explicitly not a fraud/validity proof.** `WithdrawManager.checkBlockMembershipInCheckpoint`
+proves Merkle membership against a checkpoint header that `StakeManager.checkSignatures` accepts only at
+**`signedStakePower >= totalStake*2/3 + 1`**. So a **≥2/3 stake-weighted validator collusion can sign an
+arbitrary checkpoint root** → forge exits; plus `RootChain.setNextHeaderBlock` is **`onlyOwner`** (a header-
+pointer admin lever). This is the documented PoS-sidechain trust model (the same family as Axelar B4 /
+Chainflip B10 — a >2/3 set — but here it gates the *canonical* bridge of a major chain). Replay-guarded
+(`EXIT_ALREADY_EXISTS` + exitNFT burn + challenge period). **No code defect; the weaker trust root is the
+architecture** (a checkpoint sidechain is not a rollup, and its bridge inherits that).
+
+**Verdict: the native-proof end of the taxonomy holds up** — five of six canonical bridges make withdrawal
+*impossible* without a verified proof, escape hatches included, and the residual is uniformly the **standard
+governance ceiling: a multisig+timelock that can swap the verifier or upgrade the proxy** (the same key-at-
+the-top pattern as B5/B6). Polygon PoS is the instructive contrast: it *looks* like "a native bridge" but is
+a **validator-signature checkpoint bridge**, so it belongs with the >2/3-set models, not the proof-gated
+ones — exactly the distinction the taxonomy exists to draw. **No finding** in any of the six.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -472,6 +580,8 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B7 | Synapse | off-chain MPC + on-chain **bare role-check** (weakest) | contract correct, but **no on-chain verification**; trust = off-chain key + proxy admin (Multichain class) |
 | B8 | Socket DL (Bungee) | n-of-n attestation **or** optimistic timeout+veto | sound; floor = **1-of-N watcher veto + timeout**, not the headline n-of-n |
 | B9 | Circle CCTP | first-party issuer burn-and-mint | clean; **zero marginal trust** for USDC (issuer == attester); residual = Circle, default 1-of-n |
+| B10 | Chainflip | TSS vault (off-chain threshold-Schnorr) | clean, hardened; trust = the aggregate key (>2/3, FROST) + time-gated govKey backstop |
+| B11 | zkSync Era · StarkGate · Scroll | native zk-rollup canonical bridges | all clean: withdrawal **gated on a verified validity proof**; residual = governance verifier-upgrade |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
@@ -489,18 +599,29 @@ that root is:**
 
 **So "audit the bridge" almost always means "name the trust root and size the residual," not "find the
 contract bug."** Every nine-figure bridge hack was either a *contract* bug in the verification (Wormhole
-2022 signature bypass, Nomad 2022 zero-root) — the class these five have each explicitly guarded — **or** a
-*trust-root* compromise (Ronin 5/9 keys, Harmony 2/5) — the residual that no amount of clean code removes.
-The lens earns its keep by putting **"who authorizes the mint"** first: the contract read tells you the
-code is clean; the *answer to that question* tells you what you're actually trusting. **Six bridges, six
-clean contracts, six named-and-sized residuals; no finding.**
+2022 signature bypass, Nomad 2022 zero-root) — the class every clean contract here explicitly guards — **or**
+a *trust-root* compromise (Ronin 5/9 keys, Harmony 2/5, Multichain MPC keys) — the residual that no amount of
+clean code removes. The lens earns its keep by putting **"who authorizes the mint"** first: the contract read
+tells you the code is clean; the *answer to that question* tells you what you're actually trusting.
 
-**The single sentence the whole sweep proves:** *across all six models, the contract is never the weak
+**The tally after the full sweep:** **~23 bridge systems** — **11 deep contract reads (B1–B11, where B11 is
+6 canonical L1↔L2 bridges) + 12 rapid surface sweeps** — spanning **every row of the taxonomy** from
+first-party issuer and native-proof down to off-chain-bare-role. **Every single contract's verification is
+clean** (sound predicate, replay guard, conservation); **not one exploitable finding.** The variance is
+*entirely* in the trust root, and the deep reads added two refinements the original six-row table didn't have:
+- **B9 marginal trust** — trust-minimality is *relative to what you already hold*. Circle CCTP is fully
+  centralized yet adds **zero** trust for USDC (issuer == attester), beating every third-party wrapped bridge.
+- **B10 the multisig can live in the cryptography** — Chainflip's *one* on-chain Schnorr signature is a >2/3
+  FROST threshold; "no m-of-n loop on-chain" ≠ centralized. You must audit *past* the contract to the
+  off-chain signing protocol — precisely where "name your oracle" points.
+
+**The single sentence the whole sweep proves, now measured on ~23 bridges:** *the contract is never the weak
 link — the trust root is,* and going down the taxonomy you don't remove the trust, you only make it **less
-human** (committee → staked set → optimistic watcher → proof) until, at the trust-minimized end (B5/B6),
-the *only* residual left is a **governance key** — a vkey owner or a Security Council — that can change or
-halt the very proof machinery the security rests on. **Cryptography moves the trust; it never deletes it.**
-That is the §4f settlement-seam spectrum and the governance-ceiling coordinate, measured on six live
-bridges. The remaining open candidate (the conserve-by-construction end) is an **HTLC** path with readable
-source — the one model with *no* mint authority at all (cf. the Meson note); worth a contract-level read if
-a public HTLC implementation surfaces.
+human** (off-chain key → committee → staked/FROST set → optimistic watcher → proof) until, at the
+trust-minimized end (B5/B6/B11), the *only* residual left is a **governance key** — a vkey owner, a Security
+Council, a verifier-upgrade multisig — that can change or halt the very proof machinery the security rests on.
+**Cryptography moves the trust; it never deletes it.** That is the §4f settlement-seam spectrum and the
+governance-ceiling coordinate, measured at scale. The one open candidate (the conserve-by-construction end)
+remains an **HTLC** path with readable source — *no* mint authority at all (cf. the Meson note) — and the TSS
+side was reached from the other direction by B10; a public HTLC implementation is the last contract-level read
+to close the taxonomy end-to-end.
