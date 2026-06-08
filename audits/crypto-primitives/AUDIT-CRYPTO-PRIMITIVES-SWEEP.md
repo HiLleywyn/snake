@@ -13,9 +13,9 @@ and **every client must compute the *same* truth or the chain splits.**
 **Target:** `ethereum/go-ethereum`, `core/vm/contracts.go` + `crypto/bn256/cloudflare/`. The two classic
 precompile bug surfaces: **modexp** (gas/length-overflow → DoS) and **bn256/alt_bn128** (field-canonical +
 curve + subgroup → forgery/malleability/divergence). **Result: modexp is gas-bounded and length-overflow-safe;
-bn256 rejects non-canonical field elements and off-curve points; the alt_bn128 G2 *no-subgroup-check* is the
-spec's *defined* behavior, which makes "all clients match exactly" — not "add a check" — the consensus-critical
-property. No finding.**
+bn256 rejects non-canonical field elements, off-curve points, **and non-subgroup G2 points** (geth's
+misleadingly-named `IsOnCurve` does on-curve *and* a subgroup check — a fact I had to *re-audit* to get right;
+my first pass wrongly said "on-curve only"). geth and revm both subgroup-check; they match. No finding.**
 
 **modexp — DoS and the length-of-length overflow (verified myself):** the three length fields are parsed as
 `big.Int` from the first 96 bytes; **`inputLenOverflow = max(bitLen of the three) > 64`** detects the classic
@@ -33,25 +33,28 @@ is special-cased. **DoS: bounded; length-overflow: handled by detect + saturate 
   **point-at-infinity** encoding (both coords zero → the identity, `bn256.go:294`), and otherwise require
   **`IsOnCurve()`** (`:303` for G2), rejecting `"malformed point"`.
 
-**The subtle, important point — the alt_bn128 G2 subgroup check (handled with epistemic care):** BN254's G2
-has a non-trivial cofactor, so *on-curve ≠ in-subgroup*, and geth's cloudflare `G2.Unmarshal` does **on-curve
-only — no explicit subgroup check.** This is **not a geth defect; it is the *defined semantics* of the
-alt_bn128 (EIP-196/197) pairing precompile** — the precompile has always been specified this way, the
-optimal-ate pairing's final exponentiation constrains the result, and SNARK verifiers built on it ensure input
-validity at their own layer. The audit-relevant consequence is the **DIVERGE** failure mode, and it inverts
-the usual intuition: because *every client must compute this precompile identically*, a client that
-"helpfully" **added** a G2 subgroup check would **reject inputs geth accepts → a consensus split.** So the
-consensus-critical requirement here is **match the spec's exact (no-subgroup) behavior**, which is exactly
-what the reth/revm cross-check (P-next) must confirm. (Contrast: the *newer* BLS12-381 precompile, EIP-2537,
-*does* mandate subgroup checks by spec — a different curve, a different rule, audited separately.)
+**The G2 subgroup check — CORRECTED after a deep re-read (and a lesson in the corpus's own discipline):** BN254's
+G2 has a non-trivial cofactor, so *on-curve ≠ in-subgroup*, and a complete pairing precompile **must** subgroup-
+check G2. **An earlier pass of this entry claimed geth's cloudflare `G2.Unmarshal` does "on-curve only, no
+subgroup check" — that was WRONG, and it was wrong for exactly the reason this whole corpus exists: I read the
+*name* `IsOnCurve()` at the call site and never opened the function body.** The body
+(`crypto/bn256/cloudflare/twist.go:47-65`) checks `y² == x³ + b` **and then does a full subgroup check** —
+its own comment: *"Subgroup check: multiply the point by the group order and verify that it becomes the point at
+infinity"* — `cneg.Mul(c, Order); return cneg.z.IsZero()` (i.e. `r·Q == O`). So **geth's `twistPoint.IsOnCurve()`,
+despite its name, performs on-curve *and* subgroup membership**, and `G2.Unmarshal` rejects any non-subgroup
+point as `"malformed point"` at decode. **geth subgroup-checks alt_bn128 G2.** (G1 needs no check — cofactor 1.)
+The *recompute-don't-trust-the-summary* rule (`../methodology/AUDIT-REASONER-EPISTEMOLOGY.md`) applied to my own
+prior summary: it was a one-line gloss I hadn't recomputed, and recomputing it reversed the conclusion.
 
-**Verdict:** modexp is DoS-bounded and overflow-safe; bn256 rejects non-canonical fields and off-curve points,
-handles infinity, and follows the alt_bn128 spec's *defined* on-curve-only G2 rule. **No finding.** The
+**Verdict:** modexp is DoS-bounded and overflow-safe; bn256 rejects non-canonical fields, off-curve points, **and
+non-subgroup G2 points** (the `IsOnCurve`-that-also-checks-subgroup), and handles infinity. **No finding.** The
 teaching point this layer adds: **at the primitive layer the dominant risk is DIVERGE, not FORGE** — the
-crypto is well-studied, but the spec pins even the *unusual* behaviors (alt_bn128's no-subgroup-check), and the
-audit question becomes *"does every client match the exact rejection conditions, including the surprising
-ones."* The residual is precisely cross-client agreement on edges — the reth/revm + BLS + KZG entries below
-test exactly that.
+crypto is well-studied, but the audit question is *"does every client reject the exact same inputs."* For
+alt_bn128 the rejection set includes **non-subgroup G2** (geth via the subgroup check inside `IsOnCurve`, revm
+via arkworks' `is_in_correct_subgroup` — P3 confirms they agree), so a forgery via a non-subgroup G2 point is
+closed *and* the clients match. The residual is precisely cross-client agreement on edges — the reth/revm + BLS
++ KZG entries below test exactly that, and the alt_bn128 G2 edge (the one I had to re-audit) lands on **both
+reject** — no divergence.
 
 ---
 
@@ -115,23 +118,21 @@ reconciled — characterized below, not asserted as a divergence. No finding.**
 - **KZG/BLS12-381** — revm delegates to the same canonical **c-kzg/blst** primitives geth uses, so the
   subgroup/canonical checks are identical by construction. Match.
 
-**The one subtle point — alt_bn128 (EIP-196/197) G2 subgroup (handled with care):** at the *source* level,
-**revm/arkworks enforces a G2 subgroup check** (`is_in_correct_subgroup_assuming_on_curve`) on pairing inputs,
-while **geth/cloudflare does on-curve only** (P1 — verified; no subgroup check anywhere in the cloudflare
-package). A *naive* reading would call that a divergence vector. **It is not, and the evidence is dispositive:**
-alt_bn128 pairings have executed on Ethereum mainnet across geth, reth/revm, besu, nethermind, and erigon for
-**~8 years**, in nearly every block via rollup/SNARK verifiers, with **zero consensus splits** attributable to
-this — which proves the *observable* behavior is identical. The reconciliation (stated as the well-founded
-hypothesis it is, not a source-proven claim): **a non-subgroup G2 point makes the `∏ e(Pᵢ,Qᵢ) == 1` check
-fail anyway**, so geth *computes the pairing and returns false* while revm *rejects the point and returns
-false* — **same observable result** — making the subgroup check defensively-present in revm and observably-
-redundant in geth for this curve/precompile (in contrast to EIP-2537, where the check is spec-mandated and
-both clients perform it). **This is the honest shape of the finding: an apparent code difference that the
-ecosystem's own differential-testing (the consensus/EELS test suite) and 8 years of mainnet have reconciled.**
-It is the *single* place in the sweep where source-only reading surfaces a difference, and it is exactly the
-kind of edge the layer's safety depends on the **execution-spec + cross-client consensus tests** to pin — not
-on any one client's reading. **No finding;** flagged as the residual most worth the ecosystem's continued
-differential fuzzing.
+**The alt_bn128 G2 subgroup point — RESOLVED on deep re-audit (this entry's first version had it wrong):** the
+question is whether geth and revm agree on a G2 point that is *on-curve but not in the order-r subgroup*. An
+earlier version of this entry reported an *apparent divergence* — "revm/arkworks subgroup-checks G2, geth does
+on-curve only" — and reconciled it with a hypothesis ("the pairing fails anyway"). **The deep re-audit shows
+both the apparent divergence and the hypothesis were wrong: geth *also* subgroup-checks G2.** geth's
+`G2.Unmarshal` rejects via `twistPoint.IsOnCurve()`, whose body (`cloudflare/twist.go:60-65`) performs
+`y²==x³+b` **and** a subgroup check — *"multiply the point by the group order and verify it becomes the point at
+infinity"* (`Mul(c, Order); z.IsZero()`). So **both clients reject a non-subgroup G2 point at decode** (geth →
+`"malformed point"` / precompile fails; revm → `is_in_correct_subgroup` fails / precompile fails) — **identical
+observable behavior, no divergence, no hypothesis needed.** The original error came from reading the *call site*
+(`require IsOnCurve`) without opening the *function* — the precise failure mode the corpus is built to catch
+(`recompute, don't trust the summary`), here caught in my own work. The 8-years-of-mainnet evidence still holds,
+but the *reason* is the simple one: every major client subgroup-checks alt_bn128 G2, so they agree by all
+*doing the check*, not by the check being redundant. **No finding;** the one edge I re-audited lands on **both
+clients reject** — the cleanest possible consensus-equivalence.
 
 ---
 
@@ -163,18 +164,20 @@ fuzzing). That is *exactly* the corpus's discipline (`../methodology/AUDIT-REASO
 defense against a blind spot is **an independent re-derivation that doesn't share it.** A cross-client
 consensus test is a recompute-the-summary by a decorrelated observer — the same reason this sweep read *both*
 geth and revm rather than trusting either. **Five primitives, two clients, zero findings; the one subtle
-alt_bn128 edge named and shown reconciled; the layer's safety rests on exactly the cross-implementation
-recomputation the corpus is built on.** The snake, at the very bottom, checks its tail against a *second*
-snake.
+alt_bn128 G2 edge I re-audited lands on *both clients subgroup-check* — no divergence — and getting there
+required correcting my own first-pass summary by opening the function I'd only read the name of.** That
+correction is the whole methodology in one move: the layer's safety rests on cross-implementation recomputation,
+and so did the audit's. The snake, at the very bottom, checks its tail against a *second* snake — and had to
+re-check its own reading against the source.
 
 ---
 
 ## Sweep status
 | # | Target | Primitive | malformed-input rejected + bounded? | Dominant failure mode |
 |---|---|---|---|---|
-| P1 | go-ethereum | modexp + bn256/alt_bn128 | **yes** — modexp gas-saturate + EIP-7823 cap; bn256 canonical field + on-curve + infinity | **DIVERGE** is the layer's real risk; alt_bn128 G2 = defined no-subgroup-check |
+| P1 | go-ethereum | modexp + bn256/alt_bn128 | **yes** — modexp gas-saturate + EIP-7823 cap; bn256 canonical field + on-curve + **G2 subgroup (inside `IsOnCurve`)** + infinity | **DIVERGE** is the layer's real risk; geth *does* subgroup-check G2 (re-audited correction) |
 | P2 | geth + c-kzg + blst | BLS12-381 (EIP-2537) + KZG/4844 | **yes** — subgroup-checked (spec-mandated), canonical field, embedded+validated setup, fail-closed | residual = client must KeyValidate before FastAggregateVerify |
-| P3 | reth/revm vs geth | cross-client consistency | **yes** — ecrecover/modexp/blake2/bn256/KZG all consensus-equivalent | alt_bn128 G2 apparent diff **observably reconciled** (8yr mainnet); flagged for differential fuzzing |
+| P3 | reth/revm vs geth | cross-client consistency | **yes** — ecrecover/modexp/blake2/bn256/KZG all consensus-equivalent | alt_bn128 G2: **both subgroup-check** (re-audited — no divergence; my earlier "apparent diff" was a misread) |
 
 **Result:** 5 primitives × 2 clients — **the dominant risk is DIVERGE (clients disagreeing), not FORGE; every
 edge examined is consensus-equivalent**, forgery is closed by subgroup+canonical+binding, DoS is gas-bounded.
