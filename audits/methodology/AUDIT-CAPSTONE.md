@@ -20,6 +20,14 @@ Optimism, Cosmos x/bank, IBC, Monero, ICP, Kaspa, Filecoin, Stacks, Tezos, Heder
 The corpus is itself the result: the lens produced *proportional signal* on every paradigm —
 finding the real bug where one existed, and naming the trust precisely where none did.
 
+**Scope note (this capstone now spans the whole stack).** Beyond the original ~40 chain/protocol systems, the
+lens was carried *vertically* through the entire node stack — **seven dedicated deep-sweep folders** (bridges,
+state-sync, consensus, validator-ops, crypto-primitives, zk-proving, p2p-eclipse; consolidated in **§5c**),
+~150 deep contract/source reads across many independent client and library implementations. The headline holds
+unchanged across all of it: **still one genuine finding (MemeCore); every other system a sound floor + a named
+residual** — plus, from the re-audit pass, *one corrected summary in the corpus's own output* (the alt_bn128 G2
+subgroup re-read, §5c), which is the methodology demonstrated on itself.
+
 ---
 
 ## 2. Evidence table (every target, dominant locus, verdict)
@@ -387,6 +395,59 @@ MemeCore the only one across it.** The exploitable *code* surface at the top tie
 essentially closed; the live risk concentrates at the **fail-safe frontier** (fresh
 dual-representation/settlement/equivalence code — caught & fixed) and at the named **off-chain /
 cross-client / governance / oracle** substrate.
+
+---
+
+## 5c. The full-stack trust traversal — seven layers, one law
+
+After the chain/protocol corpus (§1–§5b) and the bridge sweep (§4f), the lens was pointed at the **entire
+node stack, top to bottom** — seven dedicated deep-sweep folders, each with its own threat model and synthesis,
+each reading live client/library source across multiple independent implementations and **recomputing every
+load-bearing claim by hand** (the sub-agents only ever returned summaries):
+
+| Layer (folder) | Trust question | The discipline that defends it | Worst failure mode | Residual / named outliers |
+|---|---|---|---|---|
+| **`bridges/`** | trust *another chain's* summary | name the authorizer; verify the mint (proof vs. attestation) | forged mint / total drain | the trust root (committee→staked→optimistic→proof→issuer→HTLC); ~23 EVM + 20 non-EVM + 7 BTC, all clean |
+| **`state-sync/`** | trust a *peer's* summary of your own chain | **verify-before-persist** / bound-before-allocate; anchor to consensus | divergence / accept-invalid / corrupt-DB | **Erigon snapshot registry**, **Prysm checkpoint binding** (the two attested outliers) |
+| **`consensus/`** | trust *no participant* | recompute the fork choice; enforce the assumption *exactly* | safety break / reorg / split | when the impossible happens it **halts, not forks** (Sui `panic!`, engine-API `SYNCING`) |
+| **`validator-ops/`** | the validator's *economic* surface | minimize verifiable trust; **record before the irreversible step** | MEV-theft / slashing / leader-prediction | the MEV relay (Ethereum's one trusted intermediary); the 1-bit RANDAO bias |
+| **`crypto-primitives/`** | the verifier's *own* correctness | reject every malformed input *identically* across clients | **DIVERGE** (clients disagree) | *(re-audited)* alt_bn128 G2 — **both clients subgroup-check**, no divergence |
+| **`zk-proving/`** | does the verifier accept only *the truth* | Fiat-Shamir observe-before-sample; bind to the statement | soundness break (Frozen-Heart) | arkworks-groth16 caller-enforces-input-count (integration footgun) |
+| **`p2p-eclipse/`** | can the node *reach* the honest network | diversify by network *group*; prove liveness before you answer | eclipse (own all peers → own reality) | discv5's /24-only grouping; gossipsub's operator-set thresholds |
+
+**It is one law wearing seven masks.** Stated at each layer it reads differently — *verify-before-persist*
+(sync), *recompute the fork choice* (consensus), *record-before-sign* (keys), *reject identically* (primitives),
+*observe-before-sample* (proofs), *prove-liveness-before-answer* (p2p), *name-the-authorizer* (bridges) — but it
+is the same instruction: **never act on a summary you have not recomputed, and when you cannot recompute, fail
+safe (abort, halt, reject, re-request) rather than guess.** That is the §5b fail-safe-substrate law and the
+`AUDIT-REASONER-EPISTEMOLOGY.md §9` *proven-vs-attested ≡ recompute-vs-trust-the-summary* axis, now **measured
+end to end**: the same axis that sorts a committee bridge from a light client sorts an attested DA layer from a
+KZG-proved one (`bridges/` ↔ `crypto-primitives/`), a checkpoint-trusting Prysm path from a state-root-binding
+Lighthouse one (`state-sync/`), a Celestia inclusion-proof-plus-fraud-proof from a PeerDAS validity-proof
+(`state-sync/` S7), and a no-PoW soundness parameter from a grinding-augmented one (`zk-proving/`). **The
+distinction is scale-free: it is the organizing question of trust at every layer of the stack.**
+
+And the bottom turns out to guard the top: **`p2p-eclipse/` is the precondition for everything above it** —
+verify-before-persist verifies *the attacker's* data if every peer is the attacker, so the anti-eclipse layer's
+job (diversify by network group, make eclipse cost identities across many ASNs) is the structural guarantee that
+a node can reach the **decorrelated honest observer** the entire methodology depends on. The corpus closes its
+own loop: the epistemology says *the only defense against a blind spot is an observer who doesn't share it*; the
+networking floor is what ensures that observer is reachable.
+
+**The re-audit pass (this is the methodology auditing itself).** Returning to the flagged residuals with the
+full-stack picture produced one **self-correction** that is the whole discipline in miniature: the
+`crypto-primitives/` entry had claimed *"geth does on-curve only, no alt_bn128 G2 subgroup check,"* and
+reconciled the apparent divergence-with-revm by a hypothesis. **Re-reading the actual function body** —
+`twistPoint.IsOnCurve()` does the on-curve check *and* a subgroup check (`r·Q == O`) inside a misleadingly-named
+function — **reversed the conclusion: both clients subgroup-check, there is no divergence, and no hypothesis was
+ever needed.** The error was reading a *call site* (`require IsOnCurve`) without opening the *function* — the
+exact `recompute-don't-trust-the-summary` failure the corpus is built to catch, caught here in the corpus's own
+output, exactly as MemeCore Pass 6 corrected its own earlier notes. The re-audit also **confirmed** (by
+re-reading the functions, not the call sites) the two `state-sync/` outliers — Prysm's body-root-only checkpoint
+binding and Erigon's registry trust — as accurate, low-severity, operator-bounded hardening gaps, each with a
+named fix. **Net result of the full-stack + re-audit pass: still one genuine finding in the entire corpus
+(MemeCore); every other system a sound floor + a named residual; and one corrected summary that proves the
+method works on its own work.**
 
 ---
 
