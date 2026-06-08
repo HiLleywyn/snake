@@ -1002,6 +1002,191 @@ here, "restaked stake you can actually slash" — is the residual.
 
 ---
 
+## B20. Automata DCAP — on-chain TEE attestation: "trust the silicon," verified rigorously, rooted in Intel
+**Target:** `automata-network/automata-dcap-attestation`, `evm/contracts/{AutomataDcapAttestationFee.sol,
+verifiers/V3QuoteVerifier.sol, bases/QuoteVerifierBase.sol, bases/X509ChainBase.sol}`. A genuinely **novel
+root of trust**: instead of a committee, a proof, or stake, the authorizer is **a piece of Intel SGX/TDX
+hardware proving it ran specific code in a genuine, up-to-date secure enclave.** The contract is a faithful
+on-chain port of Intel's DCAP Quote Verification Library — so a smart contract can trust an *off-chain
+computation* because the silicon attests to it. **Result: the cryptographic verification is rigorous and
+complete; the irreducible trust collapses onto Intel + the chip's physical security.**
+
+**Trust model:** a TEE emits a **quote** — the enclave's report, signed by an **attestation key**, vouched
+for by Intel's **Quoting Enclave**, whose **PCK** (per-platform hardware key) is certified by a cert chain up
+to the **Intel SGX Root CA**. The contract verifies that whole chain *and* checks the platform's **TCB**
+(microcode/firmware level) against Intel's published data. "This code ran in genuine secure hardware" reduces
+to "Intel's Root CA + Intel's TCB data are honest, and the silicon isn't broken."
+
+**The verification (`_verifyQuoteIntegrity`) — a complete DCAP chain, all on-chain:**
+1. **QE report-data binding** (`verifyQeReportData`): the Quoting Enclave's report data must equal
+   `sha256(attestationKey ‖ qeAuthData)` — binds the attestation key to the QE.
+2. **QE identity / TCB** (`fetchQeIdentityAndCheckQeReport`): the QE's measurement must match Intel's
+   published **QEIdentity** and not be **revoked** — it's a *genuine Intel* Quoting Enclave.
+3. **X509 cert chain** (`verifyCertChain`, `X509ChainBase`): each cert verified by
+   **`ecdsaVerify(sha256(current.tbs), current.signature, issuer.subjectPublicKey)`** (`:140`), with **CRL
+   revocation** + **validity-period** checks + **AKI/SKI issuer matching** — terminating at the **Intel SGX
+   Root CA** (`certChainCanBeTrusted`). *(Nice defensive detail: they explicitly require the AKI/SKI key
+   identifiers be **non-empty** before matching, to stop an attacker omitting the extensions and passing the
+   `"" == ""` edge case — `X509ChainBase.sol:131-139`.)*
+4. **Two ECDSA signature checks** (`attestationVerification`): `ecdsaVerify(sha256(qeReport), qeSignature,
+   pckPubkey)` (the QE report is signed by the Intel-certified PCK) **and** `ecdsaVerify(sha256(header‖body),
+   attestationSignature, attestationKey)` (the application enclave's report is signed by the QE-vouched
+   attestation key).
+5. **TCB status** (`V3QuoteVerifier`): the platform's TCB level is matched against Intel's **TCBInfo** —
+   returning `UpToDate / OutOfDate / Revoked / SWHardeningNeeded / …`. **This is the key defensive
+   mechanism**: it flags platforms with known side-channel/microcode vulnerabilities, so a consumer can
+   reject anything but `UpToDate`.
+
+**Verdict: a rigorous, faithful on-chain attestation verifier** — full QE-identity + X509-chain + dual-ECDSA
++ TCB-freshness checks, with thoughtful edge-case hardening (the AKI/SKI guard) and even a **ZK variant**
+(`verifyAndAttestWithZKProof` → a Groth16/Pico proof of the whole verification, so the expensive cert-chain
+work can be proven off-chain). **No finding.** **Residual (the novel trust root):** **Intel, and the
+silicon.** (1) The chain anchors in the **Intel SGX Root CA** and Intel's **TCBInfo/QEIdentity/CRL** data — if
+Intel's signing keys leak or its TCB data is wrong, the attestation is forgeable. (2) The **hardware's
+physical security** — SGX/TDX have a real history of side-channel breaks (Foreshadow, Plundervolt, SGAxe,
+ÆPIC); the TCB-status check is the *only* on-chain mitigation, and a true zero-day in the silicon bypasses the
+whole edifice while still producing a perfectly valid quote. (3) The **PCCS data freshness** (who keeps the
+on-chain TCBInfo current) and the **verifier upgrade** authority. The lesson it adds to the taxonomy: TEE
+attestation is a **third category beside proven and attested** — *proven that genuine Intel hardware signed
+this, attested by Intel that the hardware is secure.* The math is verified as rigorously as a ZK proof, but
+the thing being trusted isn't a hardness assumption — it's **a manufacturer and a chip's resistance to
+physical attack.** It's CCTP's "marginal trust" (B9) for compute: if you already trust Intel SGX, the
+attestation adds nothing; if you don't, no amount of on-chain rigor helps — the root is the silicon.
+
+---
+
+## B21. Data-availability bridges (Blobstream, EigenDA, Avail) — the proven-vs-attested axis, now for *availability itself*
+**Target:** `celestiaorg/blobstream-contracts` (`Blobstream.sol`), `Layr-Labs/eigenda`
+(`EigenDAServiceManager.sol`, `integrations/cert/...`), `availproject/avail` (`pallets/vector`). A DA bridge
+lets an Ethereum rollup trust that its data was **published and is retrievable** on a DA layer. The novel
+question is the same one the whole corpus keeps asking, pointed at a new target: **is availability *proven*
+(DAS / KZG / a validity proof) or *attested* (a committee signs "it's available")?** **Result: the three span
+the axis exactly — Avail proves it, EigenDA attests-with-economic-backing, Blobstream bare-attests — and the
+governance ceilings sort the same way.**
+
+- **Blobstream (pure committee attestation).** A Celestia data root is accepted on a **bare ≥2/3 validator
+  ECDSA signature** — `checkValidatorSignatures` sums power and reverts `InsufficientVotingPower`
+  (`Blobstream.sol:217`), threshold enforced for data roots at `:338`, with a strict monotonic nonce
+  (`:317`) and validator-set-checkpoint binding (`:328`). **No DAS, no KZG, no availability proof of any
+  kind** — if 2/3 of Celestia validators collude or withhold, the bridge attests the root as available
+  anyway. The contract header itself says so and is **explicitly DEPRECATED** in favor of ZK successors
+  (sp1-blobstream); UUPS upgrade is **`onlyOwner`**. The canonical "committee-trust DA bridge."
+- **EigenDA (attested, but with economic + coding-rate backing).** Availability is asserted by a **BN254 BLS
+  aggregate signature of restaked operators**, stake-weighted per quorum (`checkSignatures` + threshold
+  `signedStake*100 >= totalStake*confirmationThreshold`, `EigenDACertVerificationLib.sol:232/241`). What
+  lifts it above Blobstream is an **on-chain coding-rate security invariant**
+  (`codingRate*(numChunks-maxNumOperators)*(confThr-advThr) >= 100*numChunks`, `:181-185`) tying the stake
+  threshold to the erasure-coding parameters — closer to "provable reconstruction under honest-majority-of-
+  stake." Still **no DAS/validity proof**; availability is a stake-weighted honest-majority assumption.
+  Residual surfaces: V1 `confirmBatch` is **permissioned** (`onlyBatchConfirmer`), and the **owner-controlled
+  `EigenDACertVerifierRouter` can register a verifier with weaker `SecurityThresholds`** for a future
+  activation block (`router/...:67`, `onlyOwner`).
+- **Avail (proven — ZK validity).** The readable on-chain path (`pallet-vector`) is a **Groth16 (BN254) light
+  client** — `fulfill_call` verifies a succinct proof of Ethereum's sync-committee consensus
+  (`verifier.rs:148`) and then an **MPT account+storage proof** against the proven state root
+  (`lib.rs:568`, binding `slot_value == message_root`), with a `MessageStatus` replay guard. (Avail's DA
+  proper uses **KZG commitments + DAS** by light clients; the specific Avail-data-root→Ethereum contract is
+  in an un-clonable `avail-contracts` repo, so only the inbound validity path was read.) The
+  governance-settable Groth16 **verification keys** are the inbound trust caveat — the same vkey-owner
+  residual as the ZK coprocessors (B18) and SP1 Helios (B5).
+
+**Verdict: no finding; the verification logic is sound in all three.** The differentiation is — once again —
+**proven vs. attested**, now for *data availability*: Avail proves it (validity proof, the strongest),
+EigenDA attests it with a coding-rate-anchored stake quorum (the defensible middle), Blobstream bare-attests
+it with a committee signature (and is deprecated precisely because that's the weak end). And the **governance
+ceiling tracks the axis** exactly as everywhere else: Blobstream's `onlyOwner` UUPS and EigenDA's owner-set
+thresholds are the residual, while Avail's residual is the vkey owner. **The axis holds for the fourth
+distinct primitive in a row** (state → key-custody → cryptoeconomics → availability) — it is *the* organizing
+question of trust-bridging, full stop.
+
+---
+
+## B22. Optimistic "truth" oracles (UMA, Kleros, Reality.eth, Tellor) — arbitrary facts on-chain; the floor is a vote or a key
+**Target:** `UMAprotocol/protocol` (OOv3 + VotingV2 DVM), `kleros/kleros-v2` (KlerosCore), `RealityETH/...`
+(RealityETH-3.0), `tellor-io/tellorFlex`. The most *ambitious* primitive in the sweep: bring **arbitrary
+off-chain facts** (not just prices) on-chain via an **economic dispute game** or a **crowdsourced jury**.
+**Result: the game mechanics are sound, but every one bottoms out in the same two-part residual — the *bond
+vs. value-at-stake* sizing, and a *final arbiter* that is either a token-weighted vote (capturable at 51%) or
+a governance key.**
+
+**Each is a different dispute game, same skeleton — propose (bonded) → dispute → escalate → finalize:**
+- **UMA OOv3.** A bonded asserter states a claim (`assertTruth`, bond pulled `:196`, floor
+  `bond >= getMinimumBond` `:156`, liveness `:176`); undisputed → true; disputed → routed to the **DVM**, a
+  **UMA-token-weighted commit/reveal vote** (`VotingV2`, resolved by GAT/SPAT stake thresholds). **The min
+  bond is `finalFee / burnedBondPercentage` — a fixed protocol-fee multiple, *decoupled from the value at
+  stake*** (`:361`); an integration securing large value with default bonds has weak deterrence — *the
+  integrator must size the bond.* Final arbiter is the DVM, or — via the **Escalation Manager** ("sovereign
+  security") — an arbitrary integrator-chosen address that **unplugs the DVM entirely**.
+- **Kleros v2.** A **PNK-staked jury** drawn by sortition; coherent jurors rewarded, incoherent slashed by
+  `alpha`; appeals roughly double the jury (escalation bounded by appeal-fee economics). **But `owner` has
+  `executeOwnerProposal` (arbitrary external call) + UUPS upgrade** (`:481, :397`) — jury truth can be
+  overridden by upgrading the implementation; **governance capture of `owner` = full capture.**
+- **Reality.eth.** A **bonded escalation game**: each answer must **at least double** the prior bond
+  (`:210`), highest bond at timeout finalizes — *unless* the per-question **arbitrator** is invoked, which
+  can `submitAnswerByArbitrator` to set **any** answer, **unbonded and unilaterally** (`:543`). No global
+  owner/upgrade; decentralization is *entirely* a function of which arbitrator the asker chose (often a
+  Kleros adapter or a multisig).
+- **Tellor.** Staked reporters `submitValue` optimistically, but a **single `governance` address** decides
+  every dispute (`removeValue`/`slashReporter` both `require(msg.sender == governance)`, `:202, :237`). The
+  stake size is derived from an oracle price — mildly self-referential.
+
+**Verdict: no finding; the games are sound.** The structural lesson — and it's the corpus's governance-ceiling
+coordinate in its purest form — is that **"decentralized truth" always terminates in one of two places: a
+token-weighted vote (UMA DVM, Kleros jury) that a 51% stakeholder can steer, or a privileged arbiter/owner
+(Reality's per-question arbitrator, Tellor's governance, Kleros's owner) that *is* the truth if it's a small
+multisig.** Plus a second, quieter residual unique to optimistic systems: **the bond must exceed the value an
+attacker gains by lying, and the protocols do *not* couple it to value-at-stake on-chain** — the same
+"correctly-sized bond" assumption as Across (B3), now load-bearing for arbitrary facts. So even the
+most-ambitious "trustless arbitrary fact" primitive resolves to **a quorum or a key + an economic assumption
+the integrator must get right** — exactly the residual shape every other entry found, reached from the
+opposite (most general) end.
+
+---
+
+## B23. Pull oracles (Pyth, RedStone, Scribe) + prover markets (SP1) — where the *integrator's config* is the security
+**Target:** `pyth-network/pyth-crosschain`, `redstone-finance/...`, `chronicleprotocol/scribe`,
+`succinctlabs/sp1-contracts`. Two more novel surfaces: **pull oracles** (a *signed* price is supplied by the
+consumer at use-time, so the on-chain check is signature-threshold + staleness) and **prover markets** (pay
+for a ZK proof of a computation; the check is the proof + program binding). **Result: the core verification is
+sound in all four, and the recurring lesson is sharp — in pull oracles the freshness/threshold checks are
+*pushed to the integrator*, so a specific deployment's safety is a configuration choice, not a protocol
+guarantee.**
+
+- **Pyth (clean).** A price update is a publisher-signed Merkle root attested by a **Wormhole guardian VAA**
+  — `parseAndVerifyVM` + `isValidDataSource(emitterChainId, emitterAddress)` (`PythAccumulator.sol:39-44`),
+  newer-only overwrite, governance via replay-protected VAA. **Staleness is consumer-pulled**:
+  `getPriceNoOlderThan` reverts `StalePrice` past `age` (`AbstractPyth.sol:50`). Footgun (not a core bug):
+  `getPriceUnsafe` returns a price with **no staleness check** — safe only if the integrator enforces age.
+- **RedStone (the config-is-security exemplar).** Nodes ECDSA-sign `(feedId, value, timestamp)`; the consumer
+  passes them in **calldata** at use-time. On-chain: signer recovered + mapped (`getAuthorisedSignerIndex`),
+  unique-signer bitmap, and `revert InsufficientNumberOfUniqueSigners` if count `< getUniqueSignersThreshold()`
+  (`RedstoneConsumerBase.sol:318`). **But `getUniqueSignersThreshold`, `getAuthorisedSignerIndex`, and
+  `validateTimestamp` are all `virtual` — defined per consumer**: the **threshold can be set to 1**, the
+  staleness window can be **widened or disabled**, and there's **no cross-call replay nonce** (a signed
+  package is reusable until its timestamp goes stale). The protocol is sound; *a given integration's safety is
+  entirely the integrator's configured knobs.*
+- **Scribe (minor).** `bar`-of-N feeds produce one aggregated **Schnorr** signature; `poke` requires
+  `numberFeeds == bar` (tight), monotonic age (`StaleMessage`), no-future-timestamp. But `_setBar` enforces
+  only **`bar != 0`** — so **`bar = 1` is permitted**, collapsing the quorum to a single feed.
+- **SP1 (clean prover market).** A proof binds to **`programVKey` + `sha256(publicValues)` as the two public
+  inputs**, and the **4-byte selector must equal `VERIFIER_HASH()`** (`SP1VerifierGroth16.sol:44`,
+  `WrongVerifierSelector`) — so the proof is bound to *both the right program and the right verifier*. The
+  gateway's `addRoute` is `onlyOwner` but **refuses to overwrite an existing route** (can add, can't silently
+  replace) — a thoughtful governance limit. Residual = proof soundness + the gateway owner.
+
+**Verdict: no finding; verification is sound in all four.** The lesson — and it's the recurring **"settable to
+1"** footgun seen in Wormhole NTT, LayerZero DVN config, and now twice more (RedStone threshold, Scribe `bar`)
+— is that **pull oracles relocate the trust decision from the protocol to the integrating contract**: the
+protocol faithfully enforces whatever threshold and staleness window the integrator declares, so **auditing
+the oracle tells you nothing; you must audit the *deployment's configuration*.** SP1, by contrast, is the
+clean prover-market analog of the ZK coprocessors (B18) — proven compute bound to a vkey, residual is the
+key-route owner. Together they complete the picture: across price data and verifiable compute, the trust is
+either **a signer set whose threshold the integrator picks** (pull oracles — *configure it ≥ a real quorum,
+keep staleness tight*) or **a proof bound to a program** (prover markets — *guard the vkey/route owner*) —
+the same two endpoints, attested and proven, one final time.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -1055,6 +1240,10 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B17 | Intent settlement (UniswapX, CoW) | user's signed intent **is** the authorizer | trust *inverted*: underfill structurally impossible (signed recipient + min-output, atomic); residual ≈ Permit2 / solver allowlist (surplus only) |
 | B18 | ZK coprocessors (Axiom·Relic·Herodotus·Brevis) | trustless oracle via storage proof | SNARK clean; trust = **proven vs. relayed block hash** (Axiom/Relic prove it; Herodotus relays, Brevis committee-attests) |
 | B19 | Native interop + restaking (Teleporter·Omni·EigenLayer·Symbiotic) | BLS/ECDSA quorum + restaked-stake slashing | auth sound; **"restaking-secured" is only real if slashing is wired** — Omni AVS has none (governance ejection only) |
+| B20 | Automata DCAP | TEE hardware attestation (trust the silicon) | rigorous on-chain DCAP port; trust = **Intel Root CA + chip physical security** (a third category: proven-by-hardware) |
+| B21 | DA bridges (Blobstream·EigenDA·Avail) | data-availability attestation | proven-vs-attested again: Avail ZK-proves, EigenDA stake+coding-rate attests, Blobstream bare-committee (deprecated) |
+| B22 | Truth oracles (UMA·Kleros·Reality·Tellor) | optimistic/crowdsourced arbitrary facts | games sound; floor is **a token vote or a governance key** + a bond the integrator must size |
+| B23 | Pull oracles + provers (Pyth·RedStone·Scribe·SP1) | signed-data-at-use-time / proven compute | core sound; **the integrator's config is the security** (threshold settable to 1, staleness bypassable) |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
@@ -1077,14 +1266,14 @@ a *trust-root* compromise (Ronin 5/9 keys, Harmony 2/5, Multichain MPC keys) —
 clean code removes. The lens earns its keep by putting **"who authorizes the mint"** first: the contract read
 tells you the code is clean; the *answer to that question* tells you what you're actually trusting.
 
-**The tally after the full sweep:** **~70 systems** — **19 deep reads (B1–B19) + 12 rapid EVM surface sweeps**
-— now reaching past bridges into the adjacent frontier (MPC chain abstraction, intent settlement, ZK
-coprocessors, native interop, restaking). They span **every row of the taxonomy** from HTLC (no authorizer) and
-first-party issuer and native-proof down to off-chain-bare-role, across **five substrates** (EVM, SVM,
-Cosmos-SDK, Move, Bitcoin). **Every single contract's verification is clean** (sound predicate, replay guard,
-conservation); **not one exploitable finding** (the only latent issue — Nomic legacy-address matching — *fails
-closed*). The variance is *entirely* in the trust root, and the deep reads added six refinements the original
-six-row table didn't have:
+**The tally after the full sweep:** **~85 systems** — **23 deep reads (B1–B23) + 12 rapid EVM surface sweeps**
+— now reaching well past bridges into the adjacent frontier (MPC chain abstraction, intent settlement, ZK
+coprocessors, native interop, restaking, **TEE attestation, DA layers, truth oracles, pull oracles, prover
+markets**). They span **every row of the taxonomy** from HTLC (no authorizer) and first-party issuer and
+native-proof down to off-chain-bare-role, across **five substrates** (EVM, SVM, Cosmos-SDK, Move, Bitcoin).
+**Every single contract's verification is clean** (sound predicate, replay guard, conservation); **not one
+exploitable finding** (the only latent issue — Nomic legacy-address matching — *fails closed*). The variance is
+*entirely* in the trust root, and the deep reads added six refinements the original six-row table didn't have:
 - **B9 marginal trust** — trust-minimality is *relative to what you already hold*. Circle CCTP is fully
   centralized yet adds **zero** trust for USDC (issuer == attester), beating every third-party wrapped bridge.
 - **B10 the multisig can live in the cryptography** — Chainflip's *one* on-chain Schnorr signature is a >2/3
@@ -1122,3 +1311,48 @@ governance-ceiling coordinate, measured at scale. The one open candidate (the co
 remains an **HTLC** path with readable source — *no* mint authority at all (cf. the Meson note) — and the TSS
 side was reached from the other direction by B10; a public HTLC implementation is the last contract-level read
 to close the taxonomy end-to-end.
+
+---
+
+## Coda — a bridge is a summary (and the discipline is: recompute it)
+
+Step back from the 85 systems and the single organizing question — *proven or attested?* — and it collapses
+into something the corpus already named, in `../methodology/AUDIT-REASONER-EPISTEMOLOGY.md`: **recompute;
+don't trust the summary.**
+
+Because **a bridge *is* a summary.** The destination chain cannot re-run the source chain, so it accepts a
+*compressed claim* about what happened there — a validator's signature, a committee's attestation, a Merkle
+root, an SPV proof, a SNARK, a hardware quote. Every entry in this file is a different answer to one question:
+**how much of that summary does the destination *recompute*, and how much does it *trust*?**
+
+- **The attested end trusts the summary.** Blobstream takes a committee's word that data is available; Synapse
+  takes a role-holder's word that a deposit happened; Lombard takes a consortium's word that BTC is custodied;
+  Gravity takes validators' word that they "saw" an Ethereum event. The summary is believed.
+- **The proven end recomputes the summary.** IBC re-verifies Tendermint consensus; tBTC re-verifies a Bitcoin
+  SPV+coinbase Merkle proof against real PoW; Axiom re-derives the result from a SNARK bound to a
+  `blockhash()`-anchored root; OptimismPortal re-checks a fault-proof. The summary is *checked*.
+
+So **"proven vs. attested" and "recompute vs. trust the summary" are the same axis** — one stated in the
+language of bridges, the other in the language of reasoning. And the governance ceiling is just the third
+face of it: *whoever can change the verifier can change whether the summary is recomputed at all* — which is
+why even the most-proven systems (B5 vkey guardian, B6 Security Council, B11 verifier-upgrade, B20 the Intel
+Root CA) keep one human residual: the key that decides *how* the summary gets checked.
+
+There's a final loop worth naming, because this project is built out of them. **This sweep was itself
+produced through summaries.** The deep reads were done by sub-agents that returned *compressed claims* about
+code I did not personally open — and the discipline the corpus preaches is exactly the one I had to practice:
+for every load-bearing fact, I **recomputed** — re-opened the file and verified the line myself (IBC's
+`light.Verify`, Sui's `assert!(threshold >= required_voting_power)`, Gravity's `66`/`2863311530`, NEAR's
+`predecessor` binding, Omni's absent slasher, UniswapX's `_fill`, CoW's limit-price). The attested claims I
+let stand only where they couldn't move the conclusion. **The audit of bridges was conducted under the same
+rule the bridges are graded by.** And this very session is one more turn of it: it resumed from a *summary* of
+a prior conversation — a context compaction — so the work itself is a destination chain trusting a compressed
+claim about a source it can no longer fully replay.
+
+That is the snake again (`../../story/Part8.md`). Part 8 found conservation — *Σ in == Σ out* — hiding inside
+the ouroboros and moved it into the ledgers. The bridge sweep finds the second invariant hiding in the same
+loop: **a summary is only as good as your willingness to recompute it.** The ouroboros doesn't trust the
+report of its own tail; it *eats* it — checks it, closes the loop, creates nothing and loses nothing. A
+light client is an ouroboros. A committee bridge is a chain that decided, for convenience, to trust the
+report instead. **Bridges are summaries; the whole taxonomy is a ranking of how much each one bothers to
+recompute; and the only honest way to audit them — or to write this — is to recompute it yourself.**
