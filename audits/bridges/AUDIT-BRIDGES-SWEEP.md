@@ -674,6 +674,55 @@ stronger off-EVM.*
 
 ---
 
+## B14. Lombard LBTC — BTC-LST "consortium" wrapper; off-chain attestation, **no on-chain Bitcoin proof** (high-TVL trust concentration)
+**Target:** `lombard-finance/evm-smart-contracts`, `LBTC/StakedLBTC.sol` + `consortium/Consortium.sol`. A
+**BTC-liquid-staking-token** wrapper (BTC held off-chain, LBTC minted on EVM) — one of the largest by TVL, and
+a clean example of the **"consortium + custodian"** model: a weighted threshold committee **attests** that a
+BTC deposit happened, and there is **no on-chain SPV proof of Bitcoin** anywhere in the mint path. **Result:
+the signature verification is correct, but the trust is unusually concentrated for the value it secures —
+characterized, not a finding.**
+
+**Trust model:** the **Lombard Consortium** — a per-epoch **weighted validator set** (`validators[]`,
+`weights[]`, `weightThreshold`). LBTC is minted when the Consortium signs a deposit payload, with a second
+**Bascule "drawbridge"** confirmation of the deposit. The BTC itself sits with **custodians**; the Consortium
+*vouches* for it. So the answer to "what does the mint verify" is **"a committee signature over an off-chain
+claim,"** not "a Bitcoin proof."
+
+**Verification (`Consortium._checkProof`) — correct weighted-threshold multisig:**
+- Proof is a `bytes[]` parallel to the validator array (non-signers = 0 bytes); each **64-byte R‖S** sig
+  (no V — validators sign with a Cosmos-SDK keyring) is tried at **V=27 then V=28**, must recover to
+  **`validators[i]`**, and accrues `weight += weights[i]`.
+- **`if (weight < weightThreshold) revert NotEnoughSignatures()`** — a genuine stake/weight threshold.
+- Epoch rotation (`setNextValidatorSet`) requires the **current** set to sign the next (`action.epoch ==
+  epoch+1`) — self-authorized, no admin rotates the set directly. Payload hashed with `sha256` (Bitcoin-style).
+
+**The concentration (why it's interesting at this TVL):**
+1. **No Bitcoin verification on-chain.** Unlike tBTC (SPV proof of the BTC deposit + a threshold-ECDSA wallet
+   you can verify controls the UTXOs), LBTC's mint trusts the Consortium's *attestation* that BTC was
+   deposited and is custodied. The Bitcoin leg is **entirely off-chain trust** (consortium + custodians +
+   Bascule), bolted to a correct on-chain signature check.
+2. **Direct `MINTER_ROLE` mint paths coexist with the proof path** (`mint(to, amount)` / `batchMint`,
+   `onlyRole(MINTER_ROLE)`, `:299-317`) — the user-facing flow routes through the asset router (which holds
+   the role) and *is* proof-gated, but a **`MINTER_ROLE` compromise mints unlimited LBTC** with no consortium
+   signature at all. That's a bare-role mint authority (cf. Synapse B7) sitting alongside the verified path.
+3. **Multiple trust roots stacked:** the Consortium (weighted threshold), the **custodians** holding the BTC,
+   the **Bascule** attester, the **`MINTER_ROLE`** holders, and the **upgrade admin** (UUPS). For a
+   multi-billion-dollar wrapper that's a wide surface — each is a separate "trust until whom."
+
+**Verdict: the contract is correct** (the weighted-threshold check is sound, with epoch-gated self-rotation
+and a Bascule second-factor), **but the model sits near the bottom of the taxonomy for what it secures** —
+an off-chain committee attestation of custodial BTC, not a Bitcoin proof, with a privileged direct-mint role
+in reserve. **No finding** (the verification does what it says; this is a publicly-documented architecture, so
+characterization not disclosure). **Residual:** the Consortium ≥threshold + the custodians + the Bascule + the
+`MINTER_ROLE` + the proxy admin. The constructive note (and the contrast the BTC-peg reads below will draw):
+the **trust-minimized** way to wrap BTC is tBTC's *SPV-proof + verifiable threshold-ECDSA wallet*; the
+**convenient, high-throughput** way is a consortium attesting custodial BTC — and the LST wrappers that
+dominate BTC-fi TVL today are overwhelmingly the latter. Same lesson as CCTP's "marginal trust," inverted:
+here the wrapper adds **several** new trust roots on top of "hold BTC," where a self-custodied SPV bridge adds
+far fewer.
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -721,6 +770,7 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B11 | 6 native canonical L1↔L2 | zkSync·StarkGate·Scroll·Arbitrum·zkEVM (proof) + Polygon PoS (sidechain) | 5/6 **gated on a verified proof**, no bypass; Polygon PoS outlier = 2/3+1 validator sig |
 | B12 | HTLC atomic swap | conserve-by-construction (hashlock + timelock) | **no authorizer at all**; conservation by binary state machine; residual = liveness only |
 | B13 | Non-EVM ×20 (Solana·Cosmos·Move) | guardians / stake-committee / attesters / light-client | all clean; **substrate makes conservation structural** (Move types, Solana PDAs, x/bank); IBC top-tier, Gravity the caution |
+| B14 | Lombard LBTC | BTC-LST consortium wrapper (off-chain attestation) | sig check correct, but **no on-chain BTC proof**; trust = consortium + custodians + Bascule + MINTER_ROLE (high TVL) |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
