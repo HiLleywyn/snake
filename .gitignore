@@ -1,0 +1,6 @@
+
+# stray agent clone dirs (belong in /tmp, never the repo)
+cow/
+debridge/
+*-contracts/
+nearmpc/
