@@ -585,6 +585,93 @@ must reintroduce an authorizer — and from there it's only a question of *how h
 
 ---
 
+## B13. Non-EVM bridges (Solana · Cosmos · Move) — same trust pattern, but the **substrate makes conservation structural**
+**Targets:** Solana (Wormhole core+token bridge, Circle CCTP, Across SVM-spoke), Cosmos (IBC 07-tendermint
+light client, ICS-20, Gravity Bridge), Move (Sui native bridge, Wormhole Sui, Wormhole Aptos) — **20 programs/
+modules across 3 ecosystems, three parallel sweeps, each spot-verified.** The point of going non-EVM is the
+**different bug surface** (Solana account/signer/owner confusion; Move linear types; Cosmos light-client Go),
+and the result sharpens the corpus's central thesis: **every contract's verification is clean, the trust is
+the same named root as on EVM — but the non-EVM substrates each add a conservation guarantee the EVM bridges
+have to enforce by hand.** No findings.
+
+### 13a. Cosmos — IBC is the gold-standard light client; Gravity is the cautionary contrast
+- **IBC `07-tendermint`** is the non-EVM realization of the **native-proof / light-client** top tier, and the
+  cleanest in the whole sweep. `verifyHeader` calls cometbft `light.Verify(signedHeader, trustedVals,
+  signedHeader, valSet, TrustingPeriod, now, MaxClockDrift, TrustLevel)` (`update.go:112` — **verified
+  myself**) — a *real Tendermint consensus proof*, **1/3 default trust level** (`fraction.go:9`,
+  skipping-verification standard), `checkTrustedHeader` binds `TrustedValidators.Hash() ==
+  NextValidatorsHash` (no forged trusted set), and **misbehaviour freezes the client**
+  (`UpdateStateOnMisbehaviour` → `FrozenHeight`). Recovery/upgrade are gov-gated. Trust = *the source chain's
+  own validators*, proven — no extra party.
+- **ICS-20 conservation is structural via x/bank:** escrow-on-source (`EscrowCoin`) == mint-on-dest
+  (`MintCoins`), sink-side burns/unescrows mirror it, total-escrow tracked per denom, and — the key point —
+  **the bank module is the backstop**: a malicious counterparty trying to over-unescrow simply fails at
+  `SendCoins` (insufficient balance). Conservation is enforced by the *module beneath the bridge*, not by the
+  bridge's own arithmetic.
+- **Gravity Bridge is the contrast that proves the point:** it is **not** a light client — the Cosmos side
+  **mints on a >2/3 validator *attestation*** (validators vote that they "saw" an Ethereum deposit; **no
+  on-chain proof of Ethereum consensus**), and the Ethereum side releases on a stored-valset signature
+  checkpoint (~2/3 power). Solid nonce-replay guards and post-mint supply asserts, no code defect — but its
+  Q2 answer is *"a validator signature,"* where IBC's is *"a consensus proof."* Same chain ecosystem, two
+  tiers of the taxonomy apart. (Gravity is the documented federated-attestation model; characterized, not a
+  finding.)
+
+### 13b. Move (Sui / Aptos) — conservation is **type-enforced**; mint is unreachable without a verified threshold
+- **Sui native bridge** (Sui↔Eth) is a **stake-weighted validator committee** that auto-rotates each epoch
+  from `SuiSystemState` (no admin key rotates it). Mint is gated by a real threshold signature:
+  `committee.verify_signatures` ecrecovers each sig, rejects duplicates/non-members, skips blocklisted
+  weight, and **`assert!(threshold >= required_voting_power, ESignatureBelowThreshold)`** (`committee.move:119`
+  — **verified myself**), where `required_voting_power` is **3334/10000 (~⅓) for a token transfer, 5001 for
+  governance** (`message.move:622-643` — **verified**). The decisive structural fact: **`treasury::mint` is
+  `public(package)` and only reachable via `claim_token_internal`, which first asserts the message's
+  `verified_signatures.is_some()`** — so the **linear-type `TreasuryCap` conservation guarantee can never be
+  reached without the signature check.** Plus an on-chain per-route hourly USD-notional **rate limiter** and a
+  claimed-flag replay guard.
+- **Wormhole Sui & Aptos** are the **13/19 guardian quorum** (`quorum = (n*2)/3+1`), with the mint capability
+  (`TreasuryCap`/`MintCapability`) again `public(friend)` and reachable only after `vaa::verify_only_once`
+  consumes the VAA — and the **consumed-VAA digest set** is the replay guard. The Move invariant *"only
+  `parse_and_verify` can produce a verified-message object"* is explicitly preserved, so the type system
+  carries the security, not convention.
+- **The Move lesson:** linear types mean conservation isn't an invariant you *check* — it's one the compiler
+  *won't let you violate*; the only thing the bridge code adds is the **authorization** gate in front of the
+  mint capability. That is the cleanest possible separation of "conservation floor" (substrate) from "trust
+  root" (the committee/guardians).
+
+### 13c. Solana — the account model **forces** explicit ownership; every mint is PDA-gated + one-shot
+- **Wormhole** (core + token bridge): core verifies the **2/3 guardian quorum** by binding each guardian key
+  to the native `secp256k1_program` instruction and **re-deriving the VAA body keccak hash**
+  (`post_vaa.rs check_integrity`) — defeating VAA/signature confusion; the `PostedVAA`/`SignatureSet` are
+  **PDAs owned by the bridge program**, so a forged "posted VAA" can't be injected. Token-bridge mint is
+  gated by a typed `PayloadMessage<PayloadTransfer>` (only constructible from a bridge-owned PostedVAA) and a
+  **one-shot `Claim` PDA** seeded by `(emitter, chain, sequence)` with an `Uninitialized` constraint — the
+  replay guard *is* the account model.
+- **Circle CCTP**: m-of-n attester `secp256k1_recover` with **strictly-increasing signers (dedup), enabled-
+  attester membership, and low-s malleability rejection**; `UsedNonces` PDA replay guard; and the downstream
+  mint is gated by the message-transmitter's **`authority_pda` being a `Signer` with `seeds::program` pinned
+  to the transmitter** — cross-program authority forgery is blocked by seed derivation, not a checked flag.
+- **Across SVM**: keccak merkle proof against a HubPool-relayed root (itself delivered via **CCTP
+  attestation**), claimed-bitmap replay guard, and a neat **EVM/SVM domain separation** (leaf encoding
+  prepends 64 zero bytes so an EVM leaf can never collide with an SVM leaf). Fills are self-funded
+  (`fill_status` PDA, double-fill → `RelayFilled`).
+- **The Solana lesson:** the account model has no implicit `msg.sender`/owner — **every** security-critical
+  account's owner, mint, and PDA seeds must be *explicitly* asserted, and all six programs do it
+  consistently; the one-shot init-constrained PDAs (`Claim`, `UsedNonces`) make replay protection a property
+  of account existence rather than a mutable bool.
+
+**Verdict across all three ecosystems: clean verification everywhere; the trust roots are the same named ones
+as on EVM (guardians, a stake-weighted committee, Circle's attesters, a >2/3 validator set), and not one
+exploitable finding.** What the non-EVM substrates add is exactly the corpus's **fail-safe-substrate** thesis,
+now seen from the bridge angle: **Move makes conservation a compiler guarantee, Solana makes replay an
+account-existence guarantee, Cosmos makes conservation a bank-module guarantee** — so even a buggy bridge
+*can't* over-mint or double-claim, because the layer beneath it forbids it. The bridge still chooses a trust
+root, and that root is still the residual — but the floor under it is structural, not hand-rolled. **IBC is
+the standout** (a real light client, the top tier), **Gravity the standout caution** (a validator attestation
+masquerading in the same ecosystem), and **everything else lands exactly where its EVM cousin did** — which
+is itself the finding: *the trust-model taxonomy is substrate-independent; only the conservation floor gets
+stronger off-EVM.*
+
+---
+
 ## Rapid sweep — the surface layer (12 bridges, 4 parallel passes)
 Beyond the deep reads above, a batch of **rapid surface sweeps** (the two-question lens, ~10 lines each) over
 12 bridges. The point of the batch is the **distribution**, and it's the same one the whole corpus keeps
@@ -631,6 +718,7 @@ lives in between, and where they sit is decided by **one question: can a single 
 | B10 | Chainflip | TSS vault (off-chain threshold-Schnorr) | clean, hardened; trust = the aggregate key (>2/3, FROST) + time-gated govKey backstop |
 | B11 | 6 native canonical L1↔L2 | zkSync·StarkGate·Scroll·Arbitrum·zkEVM (proof) + Polygon PoS (sidechain) | 5/6 **gated on a verified proof**, no bypass; Polygon PoS outlier = 2/3+1 validator sig |
 | B12 | HTLC atomic swap | conserve-by-construction (hashlock + timelock) | **no authorizer at all**; conservation by binary state machine; residual = liveness only |
+| B13 | Non-EVM ×20 (Solana·Cosmos·Move) | guardians / stake-committee / attesters / light-client | all clean; **substrate makes conservation structural** (Move types, Solana PDAs, x/bank); IBC top-tier, Gravity the caution |
 | — | +12 rapid sweeps | Hop·Celer·Connext·CCIP·OFT·Hyperlane·deBridge·Allbridge·NTT (table above) | all contracts clean; modal residual = an owner key that can change who attests |
 
 **The pattern across the whole taxonomy (best → worst), and it's the corpus's §5b boundary again:** in
@@ -653,16 +741,23 @@ a *trust-root* compromise (Ronin 5/9 keys, Harmony 2/5, Multichain MPC keys) —
 clean code removes. The lens earns its keep by putting **"who authorizes the mint"** first: the contract read
 tells you the code is clean; the *answer to that question* tells you what you're actually trusting.
 
-**The tally after the full sweep:** **~23 bridge systems** — **11 deep contract reads (B1–B11, where B11 is
-6 canonical L1↔L2 bridges) + 12 rapid surface sweeps** — spanning **every row of the taxonomy** from
-first-party issuer and native-proof down to off-chain-bare-role. **Every single contract's verification is
-clean** (sound predicate, replay guard, conservation); **not one exploitable finding.** The variance is
-*entirely* in the trust root, and the deep reads added two refinements the original six-row table didn't have:
+**The tally after the full sweep:** **~43 bridge systems** — **13 deep reads (B1–B13; B11 = 6 canonical
+L1↔L2 bridges, B13 = 20 non-EVM programs across Solana/Cosmos/Move) + 12 rapid EVM surface sweeps** —
+spanning **every row of the taxonomy** from HTLC (no authorizer) and first-party issuer and native-proof down
+to off-chain-bare-role, and now across **four substrates** (EVM, SVM, Cosmos-SDK, Move). **Every single
+contract's verification is clean** (sound predicate, replay guard, conservation); **not one exploitable
+finding.** The variance is *entirely* in the trust root, and the deep reads added three refinements the
+original six-row table didn't have:
 - **B9 marginal trust** — trust-minimality is *relative to what you already hold*. Circle CCTP is fully
   centralized yet adds **zero** trust for USDC (issuer == attester), beating every third-party wrapped bridge.
 - **B10 the multisig can live in the cryptography** — Chainflip's *one* on-chain Schnorr signature is a >2/3
   FROST threshold; "no m-of-n loop on-chain" ≠ centralized. You must audit *past* the contract to the
   off-chain signing protocol — precisely where "name your oracle" points.
+- **B13 the taxonomy is substrate-independent; only the floor changes** — the *same* trust roots recur on
+  Solana, Cosmos, and Move, but the conservation floor gets **structurally stronger** off-EVM (Move linear
+  types make it a compiler guarantee, Solana one-shot PDAs make replay an account-existence guarantee, Cosmos
+  x/bank makes it a module guarantee). The trust model is portable; the fail-safe substrate is not — it
+  *deepens*.
 
 **The single sentence the whole sweep proves, now measured on ~23 bridges:** *the contract is never the weak
 link — the trust root is,* and going down the taxonomy you don't remove the trust, you only make it **less
