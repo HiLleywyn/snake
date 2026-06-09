@@ -824,6 +824,72 @@ liquidation, which is the strongest evidence yet that the taxonomy is closed und
 
 ---
 
+## 5i. Three inverted trust models — issuer-is-god, off-chain backing, and the anonymity-set floor
+
+Three domains chosen because each **inverts** an assumption the prior ~17 verticals took for granted
+(permissioned/RWA tokens, Ethena USDe, Semaphore; see
+`audits/protocols/AUDIT-PERMISSIONED-TOKENS-USDC-ERC3643.md`, `AUDIT-ETHENA-USDE-OFFCHAIN-CUSTODY.md`,
+`AUDIT-SEMAPHORE-ZK-ANONYMITY-SET.md`). Together they expose three things the corpus's "conservation
+floor + residual" lens had been *implicitly trusting*.
+
+**(a) Permissioned tokens — the freeze key under all of DeFi (the meta-residual).** Every "sound,
+conserve-by-construction floor" verdict in this corpus quietly assumed the collateral token is a **neutral
+ERC20**. USDC violates that *by design*: a single `pauser` halts **all** transfers; a single `blacklister`
+freezes **any** holder bidirectionally (`notBlacklisted` is checked on sender *and* receiver, so a frozen
+address can neither send nor receive — `Blacklistable.sol:50-56` applied at `FiatTokenV1.sol:292-293`); the
+`FiatTokenProxy` admin can **replace the entire implementation** over live balances
+(`AdminUpgradeabilityProxy:107-132`); and the 1:1 backing is **off-chain with off-chain attestation**.
+ERC-3643/T-REX goes further — **identity-gated transfers** (you can't even receive without on-chain KYC,
+`Token.sol:417-426`) plus agent **`forcedTransfer`/`burn` as first-class base-layer clawback**. The
+corpus-shaking consequence: **every protocol holding USDC inherits Circle's freeze/seize/upgrade power as a
+hidden dependency** — blacklisting a pool/router address bricks that contract's USDC leg, a proxy upgrade
+could re-author balance semantics underneath all integrators. This is the **anti-pole of the own-vs-delete
+dial** (maximal issuer control, by regulatory necessity) and a residual the §5e taxonomy implied but never
+isolated: a **token-layer control residual** (destructible principal + governance ceiling, fused and pushed
+*beneath* every protocol that holds the token). The honest restatement of dozens of prior verdicts: *sound,
+conditional on the collateral token being neutral — which, for the dominant collateral, it is not.*
+
+**(b) Ethena USDe — a floor whose backing is off-chain by design.** Every prior stablecoin kept its backing
+on-chain and verifiable (Maker's `vat`, Liquity's troves). USDe is the first whose economic floor is
+*deliberately off-chain*: there is **no oracle, no collateralization check, no peg code** — `EthenaMinting`
+is a routed swap+mint where the collateral is **`safeTransferFrom`'d straight to allowlisted CeFi
+custodians** (`:413-433`) and the dollar peg is held by an **off-chain delta-neutral hedge** on CeFi
+exchanges. So the peg residual — **(a) custodian solvency, (b) perp-exchange counterparty risk, (c)
+funding-rate sign** — is *structurally invisible to on-chain analysis*. The on-chain code is a *sound
+operator interface* (EIP-712 signed orders, per-block rate limits, a halt-only `GATEKEEPER_ROLE`), but it
+makes **no solvency claim**; even the yield (sUSDe) is an off-chain-attested number streamed by a privileged
+rewarder. This is the dual of (a): USDC's *issuer* can freeze an on-chain balance; USDe's *backing* is
+off-chain and unverifiable. Both are the same lesson at the asset layer — **the on-chain conservation floor
+is only as real as the off-chain facts it imports** (a reserve, a custodian, a hedge, a funding rate).
+
+**(c) Semaphore — the anonymity-set floor, same zk residual as the rollups.** Semaphore conserves
+**eligibility/identity instead of value**, with the *same machinery* a zk-rollup uses for state. The floor
+is an **anonymity set** — a Poseidon Merkle tree of identity commitments whose *size is the privacy
+guarantee*. A Groth16 proof binds `(merkleTreeRoot, nullifier, message, scope)` so a member proves "I'm
+*some* leaf and haven't signaled before in this scope" *without revealing which*; the **nullifier is
+anonymous double-spend prevention**. The connecting point: **the on-chain verifier proves almost nothing
+itself** — it never re-derives membership, it trusts the *circuit*, and only checks a pairing + a recent
+root + nullifier-not-reused. So soundness rests on **exactly the §5c zk-rollup residual** — the trusted-setup
+ceremony (toxic-waste `tau` ⇒ forged non-member proofs, silently), circuit correctness, and Poseidon
+collision-resistance — **plus one privacy-only term: the anonymity set can be cryptographically sound and
+still hide nothing** (a 1-member group gives zero privacy; the contract only rejects *empty* groups). The
+analog, for a privacy primitive, of "the conservation floor holds but the oracle lies."
+
+**The §5i cross-cut — the floor's three hidden dependencies, named.** These three inversions reveal that the
+corpus's "the floor conserves" verdict always rested on three things it had been *trusting without saying
+so*: **(1) the token layer is neutral** (false for USDC — the issuer can freeze the floor); **(2) the
+backing is on-chain and real** (false for USDe — it's an off-chain CeFi hedge); and **(3) the proof/identity
+machinery is sound** (for Semaphore/zk, a trusted-setup-and-circuit assumption, plus the set must be large
+enough to mean anything). None of these is visible at the protocol level — each only appears when you *read
+one layer down* (the token, the custodian, the ceremony). This is the strongest vindication of the corpus's
+core method — **recompute, don't trust the summary** — extended from "recompute the protocol's math" to
+"recompute the *assumptions under* the protocol": the asset it holds, the backing behind that asset, and the
+cryptography under the proof. The five residual classes (§5e) and the own-vs-delete dial (§5f) still hold —
+permissioned tokens are the dial's maximal-own pole, AA/Uniswap/Liquity its maximal-delete pole — but §5i
+adds the meta-lesson that **a floor verdict is only as sound as the layer beneath the one you audited.**
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
