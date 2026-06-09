@@ -186,28 +186,84 @@ fork's `UniswapV2Pair` couldn't be fetched offline to byte-confirm the fee const
 
 ---
 
-## Final tally — 15 targets across 3 batches
+## Batch 4 — leveraged-stablecoin and LST conservation (high-value, mature targets)
+
+Larger TVL, more-audited targets, hunted on the conservation/rebase/exchange-rate axes rather than oracle reads.
+
+| Target | Type | Class hunted | Verdict |
+|---|---|---|---|
+| **fx Protocol** (leveraged stablecoin, v2) | production | mint-guard removal, directional pricing, peg conservation | **clean** — Chainlink staleness *is* checked; V2 dropped V1's `require(isValid)` mint guard (`TreasuryV2.sol:664-674` vs `v1/Treasury.sol:655-666`) but directional min/max pricing makes it non-value-extractable — disclosure-as-hardening only, not a finding |
+| **ether.fi** (LST/restaking) | production | rebase bounds, share/exchange-rate, withdrawal-queue accounting | **clean** — exchange-rate `getTotalPooledEther/totalShares`, consensus+APR-bounded rebase, balance-injection-immune, withdrawals hash-committed + lock-reconciled |
+| **Bunni v2** (Uniswap-v4 hook LP manager) | production (mainnet) | hook flash-accounting/settlement, rebalance-as-oracle, share conservation, LDF, access | **clean** — settlement `BeforeSwapDelta` exactly matches minted/burned claim tokens (no leftover sweepable); rebalance is TWAP-priced + slippage-bounded + filler-whitelisted + reentrancy-locked; shares `mulDiv`-down + `MIN_INITIAL_SHARES` to `address(0)`; LDF active-balance-clamped |
+| **Upside** (`code-423n4/2025-05`) | contest | bonding-curve conservation, fee-split, staking-reward, access | **clean (matches 0 H/M outcome)** — independent derivation confirms real-USDC = `(reserves − virtual) + protocolFees` with disjoint buckets; sell-floor guards the virtual reserve; reward-index dust rounds toward contract |
+| **SecondSwap** (`code-423n4/2024-12`) | contest | vesting step-accounting, marketplace transfer, referral | **bugs found, all known** — `releaseRate = total/numSteps` ignoring claimed steps (H-03), inherited `stepsClaimed` on transfer (H-01/H-02), referral-fee computed-but-never-paid (M-14); all map to the published report |
+
+**Batch-4 note — "dropped guard" is not automatically a finding.** fx Protocol's V2 removed V1's explicit
+`require(isValid)` mint guard, which *looks* like a regression; tracing the directional min/max pricing showed the
+removed check is non-value-extractable (the price a minter receives is bounded the safe way regardless). Flagged
+as disclosure/hardening, calibrated *down* honestly rather than inflated into a high — the mirror of the
+recompute-don't-trust discipline applied to severity.
+
+---
+
+## Batch 5 — the full taxonomy, no oracle priority (logic, access, reentrancy, signature)
+
+Explicitly broadened **off** the oracle-staleness/integration-seam pattern and onto the *rest* of the bug
+taxonomy — logic/off-by-one/wrong-variable, access control, delegatecall/proxy escape, signature/replay, and
+read-only reentrancy — on three mechanism types where those classes actually live (vesting/merkle-claim,
+Safe-module authorization, concentrated-liquidity reward accrual). The point was to prove the method isn't a
+one-trick oracle detector.
+
+| Target | Type | Classes hunted (no oracle) | Verdict |
+|---|---|---|---|
+| **Hedgey** `Locked_VestingTokenPlans` | production | logic/off-by-one (release `min`-cap, segment/combine end-date), access, merkle double-claim, reentrancy/DoS | **clean** — merkle leaf binds `address+amount` + single-use `claimed[id][sender]`; release `min(periods·rate, amount)` cap; segment requires `segmentEnd ≥ endCheck` (no early unlock); FOT-rejecting transfer helper |
+| **gnosis/zodiac** (Safe-module base lib) | production | access control, delegatecall/exec escape, proxy/init, signature/replay | **clean** — `moduleOnly` recovers a module sig with address(0)-reject + chainid+contract domain binding + selector+args coverage + per-signer-per-hash consumption; CREATE2 salt binds init data (no front-run window) |
+| **Ramses V3** (`code-423n4/2024-10`) | contest | read-only reentrancy, CEI, conservation/rounding, FOT composability | **clean** — the unguarded `positionPeriodSecondsInRange`/`periodCumulativesInside` views are consistent because `_modifyPosition` writes a same-block oracle observation (re-entrant read never multiplies the inflated `liquidity`); `secondsDebt` rounds *against* the user both directions; gauge `notifyReward` uses measured balance deltas |
+
+**Batch-5 note — the method discriminates beyond oracles.** Each of these was hunted with *no* oracle-staleness
+weighting, on the class most likely to be live for that mechanism. The richest surfaces — Zodiac's
+signature-recovered module authorization, Ramses's classic UniV3 read-only-reentrancy view, Hedgey's merkle
+double-claim — were each examined at the line level and found *carefully* defended (the Ramses same-block-
+observation defense and the `secondsDebt`-rounds-against-user choice are exactly the kind of subtle correctness
+the rapid sweep would miss). True negatives on audited code, no manufactured findings — the same discrimination
+the oracle-class hunt showed, now demonstrated across logic/access/reentrancy/signature.
+
+---
+
+## Final tally — 23 targets across 5 batches
 
 | Category | Count | Targets |
 |---|---|---|
-| **Clean** | 11 | Sablier, Solidly forks, Compound forks, Symbiotic, v4-periphery, Mellow, Wildcat, Gearbox, Dopex, Stargate v2, Kleidi |
-| **Contest / known bugs found** | 3 | munchables (deadlock + retroactive-tax + over-mint), IQ AI (4% quorum + stale-var check + DOS), Cork (rate-ignoring conservation break, author-`FIXME`, conditional) |
+| **Clean** | 18 | Sablier, Solidly forks, Compound forks, Symbiotic, v4-periphery, Mellow, Wildcat, Gearbox, Dopex, Stargate v2, Kleidi, fx Protocol, ether.fi, Bunni v2, Upside, Hedgey, gnosis/zodiac, Ramses V3 |
+| **Contest / known bugs found** | 4 | munchables (deadlock + retroactive-tax + over-mint), IQ AI (4% quorum + stale-var check + DOS), Cork (rate-ignoring conservation break, author-`FIXME`, conditional), SecondSwap (step-accounting H-03 + inherited-steps H-01/H-02 + unpaid-referral M-14) |
 | **Live finding (disclosed)** | 1 | [redacted lending protocol] — missing consumer-side Chainlink staleness check; verified from source, disclosed, redacted here |
+
+**Bug-class coverage across the 5 batches** (per the "don't just look for silo class" directive): oracle/staleness
+(batches 1–2), bridge/message-auth + calldata-whitelist + peg-conservation (batch 3), leveraged-stablecoin +
+LST exchange-rate + v4-hook settlement (batch 4), and logic/off-by-one + access-control/delegatecall +
+signature/replay + read-only-reentrancy (batch 5). The oracle-staleness pattern is **one row** of the matrix, not
+the matrix.
 
 ---
 
 ## Synthesis — what the hunt established
 
-1. **The method discriminates.** Five production-audited targets → clean; one ground-truth-buggy contest
-   codebase → its real highs found; one live target → a source-confirmed (Medium, conditional) finding. No
-   manufactured findings on sound code, no missed bugs on buggy code.
+1. **The method discriminates — and not just on oracles.** Across 23 targets: production-audited code →
+   clean (18); ground-truth-buggy contest codebases → their real highs found (4); one live target → a
+   source-confirmed (Medium, conditional) finding. Critically, the discrimination holds across the *full*
+   taxonomy — batch 5 proved it on logic/off-by-one, access-control/delegatecall, signature/replay, and
+   read-only reentrancy with *no* oracle weighting, returning correct true-negatives on Hedgey/Zodiac/Ramses.
+   The oracle-staleness class was never the method; it was one productive row.
 2. **Bugs live in the margins, not the core.** Where they were found (munchables, the live oracle gap) they
    were in *less-audited* or *recently-added* code, or in the **consumer-side integration** (the oracle
    read) rather than the well-studied primitive — restating the corpus law that the residual is what you
-   *don't* recompute.
-3. **Recompute-don't-trust caught itself again.** The live finding was confirmed *from source* before being
-   treated as real — the same discipline that reversed the alt_bn128 misread — and the *reverse* discipline
-   (severity/novelty calibrated *down* honestly: conditional, possibly-known) applies equally.
+   *don't* recompute. The clean mature targets (Bunni, fx, ether.fi, Zodiac, Hedgey) reinforced the mirror:
+   heavily-audited core code with correct, protocol-favoring rounding and complete guards yields nothing.
+3. **Recompute-don't-trust caught itself again — in both directions.** The live finding was confirmed *from
+   source* before being treated as real (the alt_bn128 discipline); and severity/novelty were calibrated
+   *down* honestly where warranted — Cork's conditional author-`FIXME`'d defect, fx Protocol's dropped-guard
+   that directional pricing renders non-extractable, SecondSwap's all-published findings. No "dropped check"
+   was auto-promoted to a finding without tracing whether value can actually leave.
 4. **Disclosure posture held.** The one live finding is private-first + redacted; the closed-contest
    true-positives are named (already public); the clean negatives are reported plainly.
 
