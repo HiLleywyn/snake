@@ -45,6 +45,7 @@ dial · every doc by vertical). **The synthesis → [`methodology/AUDIT-CAPSTONE
 | [AUDIT-CHAIN-SECURITY-FRONTIER.md](bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md) | The highest altitude: **Reth** (execution client — chain-split/DoS), **OP Stack FaultDisputeGame** (interactive **fraud proof**), **Babylon** (**Bitcoin-staking** hybrid); a bug = fork / forged withdrawal / unslashable BTC. All clean |
 | [AUDIT-VERIFICATION-LAYER-HUNT.md](bug-hunts/AUDIT-VERIFICATION-LAYER-HUNT.md) | The **verify-external-truth** cut: **Lighthouse** (beacon/attestation + fork-choice), **tBTC v2** (BTC SPV bridge — Σ tBTC ≡ SPV-proven BTC), **Automata DCAP** (on-chain **TEE attestation** — HEAD *is* the cert-chain-bypass fix). All clean |
 | [AUDIT-COORDINATION-LAYER-HUNT.md](bug-hunts/AUDIT-COORDINATION-LAYER-HUNT.md) | **Admission gates**: **Hyperlane** (interop message verify), **Celestia** (NMT/DA soundness — GHSA-r9fq completeness bypass present-and-patched), **Arbitrum DAO** (governance + cross-chain timelock). All clean |
+| [AUDIT-SECURITY-PRIMITIVES-HUNT.md](bug-hunts/AUDIT-SECURITY-PRIMITIVES-HUNT.md) | **The bottom turtles**: **Pyth** (pull-oracle authenticity), **ZF FROST** (threshold-Schnorr unforgeability — RFC 9591 Drijvers defense), **EigenLayer** (slashable-stake conservation — the two delays set equal). All clean |
 
 ## ⛓️ chains/ — L1 / L2 / rollup / privacy / cross-chain
 Grouped by conservation mechanism:
