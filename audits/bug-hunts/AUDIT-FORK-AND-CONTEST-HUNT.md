@@ -114,6 +114,49 @@ team has had the opportunity to respond.
 
 ---
 
+## Batch 2 — the integration-seam hunt (chasing the Silo class)
+
+The Silo finding (a *missing* consumer-side oracle-staleness check) sharpened the target: not the
+well-studied core math (which kept coming back clean), but the **integration boundary** — where a protocol
+*consumes* an oracle/token/other-protocol and quietly trusts it. Four more hunts, weighted to that seam:
+
+| Target | Audited? | Oracle-staleness handling | Verdict |
+|---|---|---|---|
+| **Mellow LRT vault** | heavily (Statemind/Mixbytes/Chainsecurity) | **checks** (`block.timestamp − maxAge > lastTimestamp → StaleOracle`); rate-based not spot; operator-gated seed first deposit | **clean** |
+| **Gearbox v3** (core/oracles/integrations) | heavily | **checks** universally (`_checkAnswer`: `price>0 && now < updatedAt + staleness`); every LP/yield rate **hard-bounded** (+2%/−1%); TWAP/EMA for AMM LPs | **clean** |
+| **Wildcat V2** (`code-423n4/2024-08`) | contest | **N/A** — no price feed at all (internal interest index) | **clean** (no new bug beyond known/intentional) |
+| **Dopex V2 CLAMM / Stryke** | yAudit | **spot-by-design** — raw V3 `slot0()`, no TWAP/staleness; but PnL realized from *actual balance deltas*, bounded by `maxCostAllowance` | **clean** (accepted design, not a defect) |
+
+**The staleness scorecard — the methodological payoff.** Across the integration-seam hunt the oracle-staleness
+class resolved into three distinct outcomes, and the method **discriminated** between them:
+- **Checks correctly** (Mellow, Gearbox) — the norm for production lending/LRT.
+- **No check by design** (Dopex's `slot0` spot, Sablier's price-gated `SafeOracle`) — *documented, accepted*
+  tradeoffs where the value isn't taken from the oracle naively → **characterized, not flagged.**
+- **Missing where it should be present** (Silo) — contradicts the protocol's *own* sibling oracle
+  (`X33ToUsdAdapter` does check) and its *own* review checklist (`oracles.instructions.md` item 4) → **the one
+  flagged + disclosed finding.**
+
+This is the credibility test the corpus cares about: *a missing check that should be there* (defect) vs
+*no-check-by-design* (accepted) are different things, and the hunt did not cry wolf on the intentional ones —
+the same calibration discipline that downgraded the Silo severity honestly (conditional, Medium,
+possibly-in-pipeline). Two non-bugs recurred across the batch and were correctly *not* flagged: the absence of
+an **L2 sequencer-uptime feed** (Mellow/Gearbox both omit it as a mainnet-target design choice) and **standard
+ERC4626 first-depositor inflation** without a virtual-shares offset (Gearbox — documented, pools seeded at
+launch).
+
+---
+
+## Final tally — 11 targets
+
+- **Clean (9):** Sablier, Solidly forks (Aero/Cone), Compound-v2 forks (Bao/Hundred), Symbiotic, Uniswap
+  v4-periphery, Mellow LRT, Wildcat V2, Gearbox v3, Dopex/Stryke.
+- **Contest known-bugs (1):** munchables — deadlock off-by-one + retroactive tax + over-mint cast (public,
+  closed contest).
+- **Live finding (1):** [redacted lending protocol] — missing consumer-side Chainlink staleness check; verified
+  from source, routed for private disclosure, redacted here.
+
+---
+
 ## Synthesis — what the hunt established
 
 1. **The method discriminates.** Five production-audited targets → clean; one ground-truth-buggy contest
