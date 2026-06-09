@@ -760,6 +760,70 @@ v4's hook and Euler's router **re-add** it by deliberate design choice.
 
 ---
 
+## 5h. Three more — the off-chain-actor residual, the attestor dial, and continuous liquidation
+
+Three further domains (account abstraction, cross-chain messaging, crvUSD LLAMMA; see
+`audits/protocols/AUDIT-ACCOUNT-ABSTRACTION-ERC4337.md`,
+`AUDIT-CROSSCHAIN-MESSAGING-LAYERZERO-WORMHOLE.md`, `AUDIT-CRVUSD-LLAMMA-SOFT-LIQUIDATION.md`). Each
+sharpens a residual class already in the taxonomy and one adds a *new liquidation mechanism*.
+
+**(a) ERC-4337 — the residual is an off-chain actor whose *behavior* the contract cannot bound, only
+whose *payment* it can.** Account abstraction has no conservation floor and no oracle; its "floor" is a
+**payment invariant** (the bundler always gets paid), secured by the **validate-then-execute** design —
+the EntryPoint validates all ops first, *prepays the gas from on-chain deposit before any code runs*
+(`AA21`/`AA31`), so a failed execution is contained while a failed validation kills the bundle. The new
+residual: a load-bearing part of the trust — the **ERC-7562 mempool rules** (validation must not read
+`block.timestamp`, touch others' storage, or use banned opcodes) — is **enforced off-chain by the
+bundler and cannot be enforced on-chain**; the contracts even document in their interfaces which rules
+they can't guarantee. The stake is the bond that gives those off-chain rules teeth. And the EntryPoint is
+the **anti-ceiling**: immutable, ungoverned, no owner/upgrade/pause — the strongest "delete the trust"
+instance in the corpus, alongside Uniswap v2 and Liquity. This generalizes a shape seen in Across
+(off-chain dataworker) and MEV/PBS (proposer ordering): **whenever a system needs honest off-chain work,
+the contract bounds the payment but not the behavior; the residual is that actor's honesty + a bond.**
+
+**(b) Cross-chain messaging — the attestor dial, and a *correlated* residual confirmed.** A generic
+cross-chain message has the same irreducible residual as any bridge — *something off-chain must attest
+what happened on the source chain* — and LayerZero vs Wormhole span the axis of *who chooses the
+attestor*. Wormhole centralizes it in **one global 13/19 guardian set** that attests messages, rotates
+itself, **and upgrades its own core** (`Governance.sol`); LayerZero **delegates the choice to each app**
+via a per-app `UlnConfig` (`requiredDVNs[]` + optional threshold), with the only protocol floor being
+"≥1 DVN." This both adds a third point to the prediction-market oracle spectrum (optimistic [Across] ↔
+fixed-quorum [Wormhole] ↔ configurable-quorum [LayerZero]) **and confirms the §5g correlated-residual
+finding**: Wormhole is *the same quorum that sits under Pyth*, so a protocol using Pyth prices **and**
+Wormhole-bridged assets has a **single** 13/19 point, not two independent ones. The own-vs-delete dial
+again: Wormhole owns the attestor (uniform, correlated, self-governing); LayerZero delegates it (flexible,
+only as safe as each app's config).
+
+**(c) crvUSD LLAMMA — a new liquidation-mechanism class: continuous soft-liquidation.** Every prior
+liquidation in the corpus was **discrete** (auction / keeper seizure / SP-offset / ADL — a threshold
+crosses and something happens *at that instant*). LLAMMA is the first **continuous** one: collateral is
+spread across narrow price **bands**, and as the oracle falls through them the LLAMMA AMM
+**automatically converts collateral→crvUSD band-by-band** — *any* arbitrageur calling `exchange()` does
+the work, no `liquidate()`, no trigger, no auction, and it **reverses** on recovery. Health uses
+`get_x_down` (the post-soft-liq value), so devaluation alone doesn't liquidate; discrete `liquidate()`
+(`health < 0`) is only a *fallback* when a fast oracle crash outruns the soft slide. This **dissolves**
+the perps "was the keeper fast enough" timeliness cliff and **migrates** the residual to (i) oracle
+honesty/speed (`limit_p_o`'s per-block clamp + dynamic fee do the load-bearing work) and (ii) the
+borrower's *continuous spread-bleed to arbitrageurs* (replacing the discrete liquidation penalty). It is
+also the corpus's clearest **AMM-as-mechanism**: where Uniswap v4 (§5g) is an AMM as a pure conservation
+floor, LLAMMA is an AMM *repurposed as a liquidation engine*, the band grid encoding a continuous
+collateral→debt conversion schedule.
+
+**The §5h cross-cut — the liquidation taxonomy is now complete, and the residual's "off-chain"
+sub-type is named.** Two consolidations: first, the **liquidation/solvency-enforcement** residual (§5e
+class 4) now has its full member list — *discrete auction, keeper seizure, SP-offset, ADL,* and
+*continuous soft-liquidation* — spanning the spectrum from "a privileged keeper acts at a threshold" to
+"arbitrage continuously and reversibly deleverages with no keeper at all," with the residual sliding from
+*keeper-timeliness* to *oracle-honesty + spread-bleed*. Second, several domains (AA bundler, Across
+dataworker, MEV proposer, messaging attestor) reveal that the **oracle/attestation residual (§5e class
+3) has an *off-chain-actor* sub-type**: an actor whose *payment* the contract bounds but whose *behavior*
+it cannot, backstopped only by a bond and a competitive market. Net: §5h fills the last gaps in the
+mechanism lists rather than adding new classes — the five residual classes (§5e) and the own-vs-delete
+dial (§5f) continue to hold across account abstraction, cross-chain messaging, and a novel continuous
+liquidation, which is the strongest evidence yet that the taxonomy is closed under new paradigms.
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
