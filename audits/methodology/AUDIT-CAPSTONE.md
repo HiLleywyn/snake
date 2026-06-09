@@ -484,6 +484,62 @@ alt_bn128 episode is a standing reminder, so the confidence here is graded, not 
 
 ---
 
+## 5d. The prediction-market vertical — one goal, four floors, four oracles
+
+A focused four-pole study (Polymarket, Augur v2, Azuro v2, Thales/Overtime; see the four
+`audits/protocols/AUDIT-*PREDICTION*/*ORACLE*/*POOL*/*AMM*` reports) tested whether the
+corpus-wide laws survive a single application domain sampled across **opposite architectures**.
+They did — but the floor law had to be *corrected*, and the correction is the lesson.
+
+**The trap, and the correction.** Two poles (Polymarket CTF, Augur ShareToken) agreed too well:
+opposite oracles, identical *conserve-by-construction* floor (`Σ numerators = denominator`/`numTicks`).
+That made "the floor always conserves" *look* like a law — but both were drawn from the same
+floor family (peer-to-peer fully-collateralized complete sets). The third pole (Azuro) **broke
+it**: a pool-as-counterparty "house" floor conserves *nothing* — it stays solvent by a *live,
+breakable* reserve-locking invariant (`changeLockedLiquidity` reverts if the pool can't cover
+worst-case liability; reserves ring-fenced from LP withdrawal), and it introduces an entire risk
+bucket — **LP capital** — that the conservation family does not have. The fourth pole (Thales
+AMM) added a *third* mechanism: model-priced single-sided positions kept solvent by **explicit
+per-market spend caps + spread**, not by collateral identity nor pre-locked per-bet liability.
+
+**The corrected, domain-independent statement of the floor coordinate:**
+
+> The floor's job is never "conserve" per se — it is **"the market maker can honor every
+> resolved position."** That goal is met by one of (at least) three mechanisms, and *identifying
+> which one you are auditing is the load-bearing judgment*:
+> | Mechanism | Guarantee | Examples | New risk it introduces |
+> |---|---|---|---|
+> | **Conservation** (peer-to-peer mint-pair / complete sets) | locked = max payout by *identity* | Polymarket CTF, Augur ShareToken, Thales `PositionalMarket` | none (no house) |
+> | **Reserve-locking solvency** (house / pool counterparty) | lock worst-case liability before accepting, or revert | Azuro `LP` | LP directional P&L + odds-pricing |
+> | **Bounded-loss-by-caps** (AMM / scoring rule) | cap cumulative maker exposure per market + spread | Thales `ThalesAMM` | LP *bounded* P&L + model mispricing |
+>
+> In the conservation family a share-accounting "finding" is almost always a **read error** and
+> there is **no LP-risk bucket**. In the other two families the floor is a **live invariant that
+> can genuinely break** (under-locked liability, withdrawable reserves, under-counted AMM
+> exposure, mispriced model). An auditor carrying the wrong family's instinct will either hunt a
+> phantom conservation leak or bless a solvency invariant as "conserving" without recomputing the
+> lock/cap math.
+
+**The oracle law held without correction — it is universal.** Every pole telescoped *all*
+economic trust onto the actor/mechanism that sets the outcome. The four oracle types map a clean
+**expressiveness ↔ determinism / trustlessness** trade-off (no design wins all three):
+
+| Oracle type | Outcome discretion | Backstop | Answers |
+|---|---|---|---|
+| Augur REP — staked reporting + **own-token fork** | low (trustless) | nuclear fork, no admin | anything (subjective ok) |
+| Polymarket UMA — optimistic + **external-token DVM vote** | medium | DVM vote + **bounded** admin override | subjective |
+| Azuro — **trusted data provider** + DAO-adjudicated dispute | high | DAO/owner | subjective, fast |
+| Thales — **Chainlink DON** price feed, deterministic | minimal (owner only triggers) | none (feed is the answer) | **only** feed-expressible |
+
+This both **specializes** §5/§4(h) (the oracle is the universal residual; only its shape varies)
+and **adds a missing axis** the L1/rollup corpus never exercised: the floor is *not one law* but
+*one goal via several mechanisms*, and the choice of mechanism determines whether floor-risk is
+*nonexistent* (conservation) or a *first-class live invariant + an LP-capital bucket*
+(solvency/caps). Same discipline as the alt_bn128 episode (§5c): the win was finding the
+**boundary** of an earlier claim, not re-confirming it a fourth time.
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
@@ -500,7 +556,10 @@ artifacts only; nothing catastrophic was ever posted.
 > irreducible 6b equivalence/oracle.* The framework found the one real bug, named every trust boundary
 > in proportion, and never overclaimed. The expansion added no findings — it added *resolution*: a
 > filled-in conservation ladder, a settlement-seam trust spectrum (validity → fraud → multisig), and a
-> cross-language determinism spine (OCC) whose negation is precisely the one bug.
+> cross-language determinism spine (OCC) whose negation is precisely the one bug. The prediction-market
+> vertical (§5d, four poles) then *corrected* a law rather than confirming it: the floor is not "always
+> conserve" but "winners always paid," met by conservation / reserve-locking solvency / bounded-loss-by-caps
+> — with LP capital as a risk bucket present in exactly the non-conservation floors.
 
 Companion index: `AUDIT-METHODOLOGY.md`, `AUDIT-METHODOLOGY-CHECKLIST.md`,
 `AUDIT-METHODOLOGY-RETROSPECTIVE.md` (§1–11), `AUDIT-GOVERNANCE-CEILING.md`,
