@@ -679,6 +679,87 @@ or the structural substitute (if deleted) actually holds.
 
 ---
 
+## 5g. Opening the foundational boxes — the oracle, the staking rate, the AMM floor, the isolated market
+
+Four more domains (price-oracle networks, liquid staking, AMM cores, isolated lending; see
+`audits/protocols/AUDIT-ORACLE-NETWORKS-CHAINLINK-PYTH.md`, `AUDIT-LST-LIDO-ROCKETPOOL.md`,
+`AUDIT-AMM-UNISWAP-V2-V3-V4.md`, `AUDIT-ISOLATED-LENDING-MORPHO-EULER.md`). Where §5f *dissected*
+coordinates, §5g **opens the boxes that everything else in the corpus sits on top of** — and two of
+them (the oracle, the AMM) are the load-bearing primitives the prior ~50 audits deferred to without
+ever reading directly.
+
+**(a) The price oracle — the universal residual bottoms out in a signer quorum + a consumer check.**
+Every vertical telescoped its dominant residual onto "the oracle." Reading the two dominant networks
+shows that residual is, mechanically, **a permissioned quorum attesting an off-chain number, with no
+price discovery on-chain**. Chainlink `transmit()` verifies `f+1` owner-appointed signer ECDSA sigs over
+a report, takes the **median**, and clamps to immutable `[minAnswer, maxAnswer]` (`OffchainAggregator
+:625-681`) — the clamp that *freezes a feed at the boundary during a real depeg* (the LUNA mechanism).
+Pyth verifies a **Wormhole guardian-set 13/19** VAA + Merkle proof (`ReceiverMessages:22-148`), meaning
+**one global ~13-key quorum sits beneath every Pyth integration on every EVM chain at once** — the
+"dominant residual" of dozens of protocols is *correlated through a single signer set*. Two
+corpus-closing consequences: **(i) "the oracle" is a multisig** — so the independent-looking residuals
+of lending, perps, stablecoins, and prediction markets are not independent; **(ii) half the oracle's
+safety is not in the oracle** — both ship a no-staleness getter (`latestAnswer`/`getPriceUnsafe`) and
+push freshness/bounds/confidence onto the *consumer*, so a complete audit must read the integrating
+contract's oracle-read (`updatedAt`/`conf`/min-max), which is where the deferred trust actually lands.
+This is why the corpus was right to name the oracle the residual *and* why naming it was never enough.
+
+**(b) The staking rate — the same residual, layered and correlated.** LSTs (Lido/Rocket Pool) complete
+the staking stack the corpus already touched from the top (validator → **LST** → restaking/LRT). The
+floor conserves cleanly (Lido rebasing shares `balanceOf = shares·totalPooledEther/totalShares`; Rocket
+Pool exchange-rate `ethValue = reth·totalETH/rethSupply`), but `totalPooledEther`/`totalETH` *include the
+off-chain beacon balance reported by a permissioned committee* (Lido HashConsensus `support ≥ _quorum`;
+Rocket Pool oDAO ≥ 51%), bounded by per-report sanity limits but not removed. This is *mechanically the
+same residual* as the LRT rate above it and the Chainlink/Pyth feeds beside it — **the
+committee-attests-an-off-chain-number residual recurs at every rung of the staking stack**, so an
+integrator stacking LRT-on-LST-on-validator inherits *all* of them, correlated. The two protocols also
+split on the §5e *destructible-principal* axis (Lido socializes slashing into holder balances; Rocket
+Pool insulates rETH behind node ETH-bond + RPL first-loss). And the headline LST risk — the
+**secondary-market depeg** — lives *outside* these contracts entirely: both define only the primary
+oracle-rate mint/redeem; the AMM price is a market fact the contracts neither cause nor prevent. The
+cleanest example in the corpus of a risk that is real, severe, and *entirely non-contractual*.
+
+**(c) The AMM floor — the conservation floor with the residual subtracted, and a fourth enforcement
+mechanism.** Uniswap is the conservation floor in its purest form: v2 is a *single inequality*
+(`x·y ≥ k` on fee-adjusted balances, `UniswapV2Pair:182`), v3 *derives* outputs per-tick from sqrt-price
+math so the invariant holds by construction, and v4 adds **conservation-by-deferred-settlement** — no
+tokens move on swap; every movement is a signed delta in EIP-1153 transient storage, and `unlock`
+**reverts unless every delta nets to zero** (`PoolManager:112`). This is a **fourth floor-enforcement
+mechanism** (joining conservation-by-identity, reserve-locking solvency, and bounded-loss-by-caps): *let
+the books be imbalanced mid-transaction, force them to balance exactly once, globally, at the boundary.*
+v2/v3 have **no residual at all** (immutable math, no oracle, no admin over the floor — the limiting
+case proving a floor can be one line); v4 **deliberately re-introduces one — the hook** — arbitrary pool
+logic that can reshape swap amounts/fees and skim a delta the *caller* pays for, bounded only by net-zero
+accounting (which protects the manager's books, *not* the user's value). The v2→v4 arc is the corpus's
+central dial in a single version bump: delete the trust (v2/v3) → re-add it by choice as the price of
+programmability (v4).
+
+**(d) The isolated market — the oracle as a per-market choice, and deferred-settlement again.** Morpho
+Blue and Euler v2 take the *same* conservative-rounding ERC4626 floor but relocate the oracle residual:
+Morpho makes it **caller-chosen and never-validated** at market creation (`IOracle.price()` is a bare
+`uint256`; the whole risk is the creator's/supplier's oracle choice, *contained per-`Id`*); Euler freezes
+it **per-vault immutable** but conventionally points at a *governed router* (trust moves down a level).
+Both **socialize bad debt to suppliers automatically and permissionlessly** — so the oracle residual and
+the supplier-loss bucket are the *same* risk from two ends. And Euler's **EVC defers solvency checks to
+the end of a batch** (`restoreExecutionContext:916-925`) — *structurally the same mechanism as Uniswap
+v4's net-zero-delta*. Seeing "let it be imbalanced mid-flight, validate once at the boundary" appear in
+a *second, unrelated* domain promotes it from an AMM quirk to a **general primitive**.
+
+**The §5g cross-cut — two findings that close the corpus's two biggest deferrals.** First, **the oracle
+residual is a signer quorum**, often a *shared* one (Pyth's 13/19 under everything), which means the
+per-protocol "dominant residual" verdicts across the whole corpus are **correlated, not independent** —
+a systemic observation no single-protocol audit could surface, and the strongest argument for the
+consumer-side oracle-read being a first-class audit object. Second, **"conservation enforced once at a
+transaction boundary"** (v4 net-zero-delta ≈ EVC deferred checks) is a *recurring* floor-enforcement
+mechanism, the on-chain expression of atomicity (cf. §5f UniswapX), and belongs in the §5e mechanism
+list as a fourth member. Net: §5g grounds the two most-cited abstractions in the corpus — "the oracle"
+and "the conservation floor" — in concrete, mechanized, and in one case *correlated* form, and confirms
+the own-vs-delete dial (§5f) one more time at the most foundational layer: the AMM and Morpho **delete**
+the residual to its irreducible minimum; the oracle networks and LSTs **own** it as a bounded quorum;
+v4's hook and Euler's router **re-add** it by deliberate design choice.
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
