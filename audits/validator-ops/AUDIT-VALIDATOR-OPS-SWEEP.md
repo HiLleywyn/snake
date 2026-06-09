@@ -1,5 +1,15 @@
 # Validator-ops sweep — MEV/PBS, randomness, key management
 
+> **Deep dives:** each item now has an individualized deep audit reading the *full mechanism* (past the headline
+> the sweep covers): **V1 →** [`AUDIT-V1-MEVBOOST-PROPOSER-DEEP.md`](AUDIT-V1-MEVBOOST-PROPOSER-DEEP.md) (relay
+> fan-out + bid gauntlet + getPayload redundancy + the 204 escape; honest corrections) · **V2 →**
+> [`AUDIT-V2-MEVBOOST-RELAY-DEEP.md`](AUDIT-V2-MEVBOOST-RELAY-DEEP.md) (the 17-step submission gauntlet, the
+> floor-bid + its non-atomic RMW, the optimistic post-hoc trust window) · **V3 →**
+> [`AUDIT-V3-RANDAO-SHUFFLE-VRF-DEEP.md`](AUDIT-V3-RANDAO-SHUFFLE-VRF-DEEP.md) (swap-or-not shuffle, the
+> balance-weighted proposer loop, Algorand's binomial sortition + two-phase lookback) · **V4 →**
+> [`AUDIT-V4-SLASHING-PROTECTION-DEEP.md`](AUDIT-V4-SLASHING-PROTECTION-DEEP.md) (the surround SQL, raise-only
+> import, GVR binding, doppelganger, the advisory lock).
+
 The validator's trust surface beyond consensus, under the threat model in [`README.md`](README.md):
 **MEV-theft, slashing, leader-election bias/prediction, key compromise, invalid-block.** The lens: *what must
 the validator trust, is that trust minimized (verified) or assumed, and can a single counterparty rob/slash/
