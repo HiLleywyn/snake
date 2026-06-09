@@ -1,14 +1,16 @@
-# Audits — index
+# Audits — directory
 
-The full corpus: ~60 systems audited with one reusable lens (six-bucket trust cartography +
-conservation floor / governance ceiling / equivalence), plus two dedicated bug-hunts. **One genuinely
-actionable finding** (MemeCore, [`finding-memecore/`](finding-memecore/AUDIT-MEMECORE-POSA.md));
-everything else resolved to a sound conservation floor + a named residual.
+The full corpus: **~80 systems** audited with one reusable lens (six-bucket trust cartography +
+conservation/solvency floor / governance ceiling / equivalence), now spanning ~40 chains, the full node
+stack, bridges, and **~20 DeFi/infra/privacy verticals**. **One genuinely actionable finding** (MemeCore,
+[`finding-memecore/`](finding-memecore/AUDIT-MEMECORE-POSA.md)); everything else resolved to a sound floor
++ a named residual.
 
-**Start here:** [`methodology/AUDIT-CAPSTONE.md`](methodology/AUDIT-CAPSTONE.md) (the synthesis, incl. §5c the
-full-stack traversal) · [`COIN-REGISTRY-100.md`](COIN-REGISTRY-100.md) (**the 100-coin registry** — every coin
-through the conservation lens + the seven-layer stack) · [`../DESIGN-PRINCIPLES.md`](../DESIGN-PRINCIPLES.md)
-(the constructive mirror) · [`methodology/AUDIT-METHODOLOGY.md`](methodology/AUDIT-METHODOLOGY.md) (the lens).
+**The map → [`CORPUS-INDEX.md`](CORPUS-INDEX.md)** (laws · the 5-class residual taxonomy · the own-vs-delete
+dial · every doc by vertical). **The synthesis → [`methodology/AUDIT-CAPSTONE.md`](methodology/AUDIT-CAPSTONE.md)**
+(§4 + §5a–§5j). Also: [`COIN-REGISTRY-100.md`](COIN-REGISTRY-100.md) (the 100-coin registry) ·
+[`../DESIGN-PRINCIPLES.md`](../DESIGN-PRINCIPLES.md) (the constructive mirror) ·
+[`methodology/AUDIT-METHODOLOGY.md`](methodology/AUDIT-METHODOLOGY.md) (the lens).
 
 ---
 
@@ -137,19 +139,42 @@ reach an honest observer — the precondition every sweep above assumes.
 | [README.md](p2p-eclipse/README.md) | The eclipse/amplification threat model + the network-floor lens |
 | [AUDIT-P2P-ECLIPSE-SWEEP.md](p2p-eclipse/AUDIT-P2P-ECLIPSE-SWEEP.md) | The sweep — Bitcoin addrman (E1), Ethereum discv5 (E2), libp2p gossipsub (E3) |
 
-## 💧 protocols/ — DeFi apps, identity, governance, tokens
-| File | What it is |
-|---|---|
-| [AUDIT-DRIFT-PERP.md](protocols/AUDIT-DRIFT-PERP.md) | Drift perp — triple-capped PnL settlement |
-| [AUDIT-MARGINFI-LENDING.md](protocols/AUDIT-MARGINFI-LENDING.md) | marginfi — rate decomposition + the "verify-the-effect" template |
-| [AUDIT-MARINADE-LST.md](protocols/AUDIT-MARINADE-LST.md) | Marinade — ledger-priced LST exchange rate |
-| [AUDIT-METEORA-DAMM-V2.md](protocols/AUDIT-METEORA-DAMM-V2.md) · [Alpha-Vault](protocols/AUDIT-METEORA-ALPHA-VAULT.md) · [Vault-SDK](protocols/AUDIT-METEORA-VAULT-SDK.md) | Meteora AMM/vaults — pool-favorable rounding |
-| [AUDIT-CIVIC-TRANSFER-HOOK.md](protocols/AUDIT-CIVIC-TRANSFER-HOOK.md) | Civic — Token-2022 validate-before-use hook |
-| [AUDIT-DEXE-GOVERNANCE.md](protocols/AUDIT-DEXE-GOVERNANCE.md) | DeXe — no-admin-key, vote-gated governance pole |
-| [AUDIT-LETSBONK-LAUNCHLAB.md](protocols/AUDIT-LETSBONK-LAUNCHLAB.md) | LaunchLab — closed/mirror auditability floor |
-| [AUDIT-OSMOSIS-SUPERFLUID-RECON.md](protocols/AUDIT-OSMOSIS-SUPERFLUID-RECON.md) | Osmosis — superfluid invariant recon |
-| [AUDIT-TRADEPORT-NOTE.md](protocols/AUDIT-TRADEPORT-NOTE.md) | TradePort — closed NFT mkt mapped via on-chain ABI |
-| [AUDIT-DEFIAPP-NOTE.md](protocols/AUDIT-DEFIAPP-NOTE.md) | Defi App — audit-PDFs-only auditability floor |
-| [AUDIT-WORLDID.md](protocols/AUDIT-WORLDID.md) | World ID — ZK tree integrity + off-chain orb |
-| [AUDIT-HUMANITY-HTOKEN.md](protocols/AUDIT-HUMANITY-HTOKEN.md) | Humanity — off-chain EAS proof-of-personhood |
-| [AUDIT-PI-LAB-WLD-GOVERNANCE.md](protocols/AUDIT-PI-LAB-WLD-GOVERNANCE.md) | PI / LAB / WLD — supply-control & auditability triptych |
+## 💧 protocols/ — ~40 DeFi / infra / privacy audits (~20 verticals)
+Grouped by vertical; full per-finding map in [`CORPUS-INDEX.md`](CORPUS-INDEX.md) §5.
+
+**Prediction markets** (one goal, four floors, four oracles — capstone §5d):
+[Polymarket](protocols/AUDIT-POLYMARKET-PREDICTION-MARKET.md) ·
+[Augur v2 vs Polymarket](protocols/AUDIT-AUGUR-V2-VS-POLYMARKET-ORACLE-SEAM.md) ·
+[Azuro (3-pole)](protocols/AUDIT-AZURO-V2-POOL-COUNTERPARTY-AND-3POLE-SYNTHESIS.md) ·
+[Thales/Overtime (4-pole taxonomy)](protocols/AUDIT-THALES-OVERTIME-AMM-AND-4POLE-TAXONOMY.md)
+
+**Stablecoins / CDPs** (no dollar is an on-chain invariant — §5j):
+[Maker vs Liquity](protocols/AUDIT-STABLECOIN-CDP-MAKER-LIQUITY.md) ·
+[USDC vs USDT (deep)](protocols/AUDIT-LARGECAP-STABLES-USDC-USDT.md) ·
+[DAI-as-USDC-wrapper + CCTP](protocols/AUDIT-DECENTRALIZED-DOLLARS-DAI-CCTP.md) ·
+[FRAX (fractional-algo + AMO)](protocols/AUDIT-FRAX-FRACTIONAL-ALGO-AMO.md) ·
+[Ethena USDe (off-chain custody)](protocols/AUDIT-ETHENA-USDE-OFFCHAIN-CUSTODY.md) ·
+[crvUSD LLAMMA (soft-liq)](protocols/AUDIT-CRVUSD-LLAMMA-SOFT-LIQUIDATION.md)
+
+**Perps & liquidation:** [GMX v1/v2](protocols/AUDIT-PERPS-LIQUIDATION-GMX.md) ·
+[Drift](protocols/AUDIT-DRIFT-PERP.md)
+**Lending:** [NFT — BendDAO/NFTfi/Blend](protocols/AUDIT-NFT-LENDING-BENDDAO-NFTFI-BLEND.md) ·
+[Isolated — Morpho/Euler](protocols/AUDIT-ISOLATED-LENDING-MORPHO-EULER.md) ·
+[marginfi](protocols/AUDIT-MARGINFI-LENDING.md)
+**Restaking & LST** (destructible-principal residual): [EigenLayer + LRT](protocols/AUDIT-RESTAKING-EIGENLAYER-LRT.md) ·
+[Lido/RocketPool](protocols/AUDIT-LST-LIDO-ROCKETPOOL.md) · [Marinade](protocols/AUDIT-MARINADE-LST.md)
+**AMM / DEX:** [Uniswap v2/v3/v4](protocols/AUDIT-AMM-UNISWAP-V2-V3-V4.md) ·
+[Meteora DAMM](protocols/AUDIT-METEORA-DAMM-V2.md) · [Alpha-Vault](protocols/AUDIT-METEORA-ALPHA-VAULT.md) ·
+[Vault-SDK](protocols/AUDIT-METEORA-VAULT-SDK.md)
+**Intents / cross-chain / oracles:** [UniswapX vs Across](protocols/AUDIT-INTENTS-UNISWAPX-ACROSS.md) ·
+[LayerZero vs Wormhole](protocols/AUDIT-CROSSCHAIN-MESSAGING-LAYERZERO-WORMHOLE.md) ·
+[Chainlink vs Pyth](protocols/AUDIT-ORACLE-NETWORKS-CHAINLINK-PYTH.md)
+**Governance / AA / tokens / privacy:** [Governance+timelock (OZ/Compound)](protocols/AUDIT-GOVERNANCE-TIMELOCK-ATTACK-SURFACE.md) ·
+[DeXe](protocols/AUDIT-DEXE-GOVERNANCE.md) · [ERC-4337 AA](protocols/AUDIT-ACCOUNT-ABSTRACTION-ERC4337.md) ·
+[Permissioned tokens (USDC/ERC-3643)](protocols/AUDIT-PERMISSIONED-TOKENS-USDC-ERC3643.md) ·
+[Semaphore (ZK anonymity set)](protocols/AUDIT-SEMAPHORE-ZK-ANONYMITY-SET.md)
+**Identity / PoP:** [World ID](protocols/AUDIT-WORLDID.md) · [Humanity](protocols/AUDIT-HUMANITY-HTOKEN.md) ·
+[PI/LAB/WLD](protocols/AUDIT-PI-LAB-WLD-GOVERNANCE.md)
+**Solana / closed / mirror-audited:** [Civic hook](protocols/AUDIT-CIVIC-TRANSFER-HOOK.md) ·
+[LaunchLab](protocols/AUDIT-LETSBONK-LAUNCHLAB.md) · [Osmosis SF](protocols/AUDIT-OSMOSIS-SUPERFLUID-RECON.md) ·
+[TradePort](protocols/AUDIT-TRADEPORT-NOTE.md) · [Defi App](protocols/AUDIT-DEFIAPP-NOTE.md)

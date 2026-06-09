@@ -484,6 +484,462 @@ alt_bn128 episode is a standing reminder, so the confidence here is graded, not 
 
 ---
 
+## 5d. The prediction-market vertical — one goal, four floors, four oracles
+
+A focused four-pole study (Polymarket, Augur v2, Azuro v2, Thales/Overtime; see the four
+`audits/protocols/AUDIT-*PREDICTION*/*ORACLE*/*POOL*/*AMM*` reports) tested whether the
+corpus-wide laws survive a single application domain sampled across **opposite architectures**.
+They did — but the floor law had to be *corrected*, and the correction is the lesson.
+
+**The trap, and the correction.** Two poles (Polymarket CTF, Augur ShareToken) agreed too well:
+opposite oracles, identical *conserve-by-construction* floor (`Σ numerators = denominator`/`numTicks`).
+That made "the floor always conserves" *look* like a law — but both were drawn from the same
+floor family (peer-to-peer fully-collateralized complete sets). The third pole (Azuro) **broke
+it**: a pool-as-counterparty "house" floor conserves *nothing* — it stays solvent by a *live,
+breakable* reserve-locking invariant (`changeLockedLiquidity` reverts if the pool can't cover
+worst-case liability; reserves ring-fenced from LP withdrawal), and it introduces an entire risk
+bucket — **LP capital** — that the conservation family does not have. The fourth pole (Thales
+AMM) added a *third* mechanism: model-priced single-sided positions kept solvent by **explicit
+per-market spend caps + spread**, not by collateral identity nor pre-locked per-bet liability.
+
+**The corrected, domain-independent statement of the floor coordinate:**
+
+> The floor's job is never "conserve" per se — it is **"the market maker can honor every
+> resolved position."** That goal is met by one of (at least) three mechanisms, and *identifying
+> which one you are auditing is the load-bearing judgment*:
+> | Mechanism | Guarantee | Examples | New risk it introduces |
+> |---|---|---|---|
+> | **Conservation** (peer-to-peer mint-pair / complete sets) | locked = max payout by *identity* | Polymarket CTF, Augur ShareToken, Thales `PositionalMarket` | none (no house) |
+> | **Reserve-locking solvency** (house / pool counterparty) | lock worst-case liability before accepting, or revert | Azuro `LP` | LP directional P&L + odds-pricing |
+> | **Bounded-loss-by-caps** (AMM / scoring rule) | cap cumulative maker exposure per market + spread | Thales `ThalesAMM` | LP *bounded* P&L + model mispricing |
+>
+> In the conservation family a share-accounting "finding" is almost always a **read error** and
+> there is **no LP-risk bucket**. In the other two families the floor is a **live invariant that
+> can genuinely break** (under-locked liability, withdrawable reserves, under-counted AMM
+> exposure, mispriced model). An auditor carrying the wrong family's instinct will either hunt a
+> phantom conservation leak or bless a solvency invariant as "conserving" without recomputing the
+> lock/cap math.
+
+**The oracle law held without correction — it is universal.** Every pole telescoped *all*
+economic trust onto the actor/mechanism that sets the outcome. The four oracle types map a clean
+**expressiveness ↔ determinism / trustlessness** trade-off (no design wins all three):
+
+| Oracle type | Outcome discretion | Backstop | Answers |
+|---|---|---|---|
+| Augur REP — staked reporting + **own-token fork** | low (trustless) | nuclear fork, no admin | anything (subjective ok) |
+| Polymarket UMA — optimistic + **external-token DVM vote** | medium | DVM vote + **bounded** admin override | subjective |
+| Azuro — **trusted data provider** + DAO-adjudicated dispute | high | DAO/owner | subjective, fast |
+| Thales — **Chainlink DON** price feed, deterministic | minimal (owner only triggers) | none (feed is the answer) | **only** feed-expressible |
+
+This both **specializes** §5/§4(h) (the oracle is the universal residual; only its shape varies)
+and **adds a missing axis** the L1/rollup corpus never exercised: the floor is *not one law* but
+*one goal via several mechanisms*, and the choice of mechanism determines whether floor-risk is
+*nonexistent* (conservation) or a *first-class live invariant + an LP-capital bucket*
+(solvency/caps). Same discipline as the alt_bn128 episode (§5c): the win was finding the
+**boundary** of an earlier claim, not re-confirming it a fourth time.
+
+---
+
+## 5e. Three DeFi verticals — slashing, continuous solvency, and the unpriceable-collateral seam
+
+Three more domains (restaking/LRTs, on-chain perps, NFT-finance lending; see
+`audits/protocols/AUDIT-RESTAKING-EIGENLAYER-LRT.md`, `AUDIT-PERPS-LIQUIDATION-GMX.md`,
+`AUDIT-NFT-LENDING-BENDDAO-NFTFI-BLEND.md`) each added a *distinct* extension to the residual
+taxonomy rather than re-confirming it. The unifying observation: **§5d's floor mechanisms recur,
+but each vertical introduces one genuinely new dimension the prior work never exercised.**
+
+**(a) Restaking — a fourth residual class: *destructible principal* (slashing).** EigenLayer's
+floor is the strongest conservation member yet — an ERC4626 share vault with the virtual-shares
+inflation guard (`StrategyBase.sol:38,42,118`, `(balance+1e3)/(shares+1e3)`). But above it sits
+something no prior vertical had: a third party (an AVS's designated **slasher**) can *destroy* up
+to 100% of an operator's allocated magnitude (`AllocationManager.slashOperator:72,428`),
+propagated pro-rata to stakers and reaching into the withdrawal queue. Conservation floors answer
+"can the system always pay what it owes"; **slashing answers a different question — "can a third
+party deliberately reduce what you are owed" — and the answer is *yes, by design, bounded and
+attributable.*** The vertical also inverts the oracle finding: EigenLayer's base "oracle" is the
+**most trustless of the entire corpus** (a cryptographic EIP-4788 beacon-state proof,
+`EigenPod.sol:36,736-745`), yet the LRT built on top (ether.fi) reintroduces a **committee-attested
+exchange rate** with only a temporary APR-band guard (`EtherFiAdmin.sol:254-257`) as the weakest
+link — proof that *the residual migrates to whatever layer re-tokenizes the position*, and that
+wrapping a trustless primitive in a liquid token can **lower** the trust floor.
+
+**(b) Perps — the floor becomes a *continuously-moving* solvency invariant.** GMX is the
+house-counterparty family (Azuro's, §5d) under continuous price motion. The floor is a hard
+on-chain invariant `reserved ≤ pool ≤ token balance` (`Vault.sol:1136,1143,1178`) that guarantees
+*winners are paid* — but keeping the *pool* whole additionally requires **a liquidation engine
+that fires in time** (`VaultUtils.validateLiquidation:61-105`) plus a **bad-debt backstop**. That
+backstop is the perps-specific residual, and its v1→v2 evolution is the same "who bears the
+shortfall" question §5d raised, now answered under time pressure: **v1 socializes the shortfall to
+LPs with no insurance fund/no ADL; v2 adds ADL** (force-deleverage winners once trader PnL vs the
+pool exceeds `MAX_PNL_FACTOR_FOR_ADL`, `AdlUtils.sol:105-133`). The oracle is a **fifth type** — a
+low-latency keeper push **clamped to a Chainlink reference** (`FastPriceFeed.getPrice:272-330`;
+v2 `Oracle._validateRefPrice:330-345`). New dimension: **timeliness** — a solvency invariant that
+must be *continuously re-enforced*, not locked once.
+
+**(c) NFT lending — when the collateral itself is unpriceable.** The cleanest demonstration that
+**the oracle choice and the liquidation design are one decision, and the residual is conserved —
+it only moves.** Three answers: BendDAO **leans in** (single admin-pushed floor oracle +
+English-auction liquidation; residual = oracle key custody + thin-floor manipulation + auction
+liveness; pool/LPs socialize bad debt — `NFTOracle.sol:186,355-384`, `LiquidateLogic.sol`);
+NFTfi **refuses** (bilateral, no LTV, no oracle; lender seizes at maturity; **zero protocol bad
+debt**; residual = lender underwriting — `DirectLoanBaseMinimal.sol:617-656`); Blend **replaces**
+the oracle with a market (perpetual loan, rising-rate Dutch *refinance* auction — the NFT is
+"underwater" only when no one will lend even at ~1000% APR; residual = lender vigilance + the
+unconditioned UUPS upgrade key — `Blend.sol:328-374,251-283`, `CalculationHelpers.sol:43-94`). The
+novelty: a design (Blend) that **deletes** the valuation seam by turning liquidation *itself* into
+price discovery — paid for with a less-bounded upgrade key.
+
+**The cross-vertical law, sharpened once more.** Every system still reduces to *a conservation/
+solvency floor + a dominant residual*, and the residual is **conserved — it only relocates** with
+the design choice. But the residual is now seen to come in **five distinguishable classes**, and a
+mature audit names which one(s) a target carries:
+1. **6b-equivalence / conservation-accounting** (can value leak by construction — the original);
+2. **governance ceiling** (what the admin/upgrade key can do);
+3. **oracle / attestation** (who sets the truth/price — now mapped across *seven* oracle types from
+   cryptographic-proof ↔ keeper-clamp ↔ optimistic ↔ token-vote ↔ trusted-feed ↔ self-token-fork ↔
+   committee-attested, on an expressiveness↔determinism↔trustlessness surface);
+4. **liquidation/solvency-enforcement timeliness** (house floors under price motion — must be
+   *continuously* re-enforced; backstop = LP-socialization vs ADL vs auction);
+5. **destructible principal** (slashing — a third party can deliberately reduce what you are owed).
+The discipline is unchanged: name the floor's *actual mechanism*, name *which residual class(es)*
+dominate, grade confidence, and treat "found nothing" as "this analysis found nothing." The value
+of these three verticals was not three more "sound" verdicts — it was discovering that the residual
+**has a richer type system** than the L1/rollup corpus alone revealed.
+
+---
+
+## 5f. Settlement, governance, and the peg — closing three coordinates the corpus kept deferring
+
+Three more domains (cross-chain intents/solvers, on-chain governance/timelock, stablecoin CDPs; see
+`audits/protocols/AUDIT-INTENTS-UNISWAPX-ACROSS.md`,
+`AUDIT-GOVERNANCE-TIMELOCK-ATTACK-SURFACE.md`, `AUDIT-STABLECOIN-CDP-MAKER-LIQUITY.md`). Unlike §5d/§5e,
+these did not add *new* residual classes — they **dissected three the corpus had named but always
+deferred to**: the settlement seam (B17), the governance ceiling, and the oracle, now seen through the
+peg.
+
+**(a) Intents — the settlement seam at both extremes, and the case where the residual is *empty*.**
+UniswapX settles **same-chain atomically**: the resolved (Dutch-decayed) output is *forced* to the
+swapper in the same tx the input is pulled via Permit2 (`BaseReactor.sol:116`), so **there is no
+oracle, no attestation, no residual** — a fill that can't deliver simply reverts, and governance is
+hardcoded out (immutable reactor, 5 bps fee cap, `ProtocolFees.sol:30`). This is the floor at its
+theoretical best: *atomicity is the unique case where the residual relocates to nothing.* Across
+settles **cross-chain optimistically**: a relayer fronts the destination payout out of pocket
+(`SpokePool.fillRelay → :1669`), but **nothing on-chain proves that fill happened** — the refund is
+asserted off-chain by a dataworker's Merkle root, admitted only via a UMA optimistic dispute window +
+the canonical L1↔L2 bridge (`HubPool.proposeRootBundle:560`, `executeRootBundle` adapter
+`delegatecall :678`). The instant settlement spans chains, the **destination-fill attestation**
+residual reappears and dominates — and it is the *same* optimistic-oracle seam (UMA) used by Polymarket
+and Azuro resolution, now answering "did the remote chain get paid" instead of "did the event happen."
+**Unification: optimistic attestation is one reusable answer to the universal residual**, whatever the
+question.
+
+**(b) Governance/timelock — the mechanism *behind* the ceiling coordinate, finally opened.** Every
+prior audit ended at "a governance ceiling" and deferred. This is the dissection, and it collapses to
+one equation: **a protocol's security ceiling = the security of its token-weighted vote + the
+timelock's minDelay exit window.** No privileged action exists above that line; an attacker who wins
+the vote inherits the timelock's full authority over every downstream contract (incl. proxy upgrades
+via a normal `call`). Two structural defenses make it survivable: **(i) vote weight is read at a *past
+snapshot block*** (`Votes.getPastVotes` + `_validateTimepoint` revert on `≥ clock()`,
+`Governor.sol`-side; Compound `Comp.getPriorVotes` `require(blockNumber < block.number)`) — which is the
+*complete* answer to flash-loan vote-borrowing (borrowed-and-repaid tokens write no checkpoint at the
+already-past snapshot ⇒ zero weight); and **(ii) the minDelay is a user *exit window***, not
+anti-attacker — capture is total but observable and escapable. The real attack surface is **almost
+entirely configuration**: `votingDelay == 0` (OZ allows it, collapses the snapshot gap; Compound floors
+it at 1), `proposalThreshold == 0`, open `EXECUTOR_ROLE`/stray timelock proposers, cancel-griefing.
+**This resolves the §4c most-to-least-centralized spectrum into four readable parameters**
+(`votingDelay` / `proposalThreshold` / `minDelay` / role set) — "name the ceiling" now means name those,
+not hand-wave at "the multisig."
+
+**(c) Stablecoin CDPs — the peg as an oracle-constraint on a conservation floor, and the
+governance dial at its sharpest.** Both Maker and Liquity have a *conserve-by-construction* collateral
+floor — Maker's `vat.frob` enforces `art·rate ≤ ink·spot (:163)` on checked double-entry arithmetic;
+Liquity enforces `ICR ≥ 110%` with **no governance mint path** (`LUSDToken.mint :99`). But a stablecoin
+needs more than conservation: it needs a **peg**, which the ledger alone can't guarantee because "$1"
+is external. The two answers are the lean-in/delete dial applied to the *admin key itself*: **Maker
+governs the peg** — adjustable risk params, surplus/debt auctions, DSR, and an **uncapped MKR-mint
+backstop** (`flop.sol:165`), with `auth` holders able to rewrite every param and even swap any ilk's
+price feed (ceiling = "MKR vote + OSM delay"); **Liquity deletes governance** — ownership renounced,
+all params `constant`, and the peg pinned by a **permissionless redemption arbitrage** (anyone swaps 1
+LUSD → $1 of ETH from the riskiest troves, `TroveManager:925-1023`) that needs no admin. Even their
+oracle *failure* philosophy follows the dial: Maker fails **closed** (`spot → 0`, liquidatable —
+acceptable because governance can intervene); Liquity fails **open** (runs on `lastGoodPrice` — because
+there is no admin to pause).
+
+**The cross-cut.** §5f shows the same dial — **own the residual vs engineer it away** — recurring at
+*three different layers*: settlement (optimistic attestation vs atomic-no-residual), the admin key
+(Maker govern-everything vs Liquity renounce-everything), and the oracle (swap-the-feed vs
+fixed-with-heuristics). It is the same shape as NFT-lending's lean-in/refuse/replace (§5e) and the
+prediction-market floor choices (§5d). The corpus-wide statement is now sharp: **every system reduces
+to a conservation/solvency floor plus a residual; the residual comes in five classes (§5e); and for
+each class a designer faces one recurring dial — *take the trust and bound it* (governance, oracles,
+optimistic attestation, ADL) *or delete the trust and pay in flexibility* (immutability, atomicity,
+redemption arbitrage, self-token mechanisms).** Auditing is naming the floor's mechanism, the dominant
+residual class, and **which side of that dial the design chose** — then verifying the bound (if taken)
+or the structural substitute (if deleted) actually holds.
+
+---
+
+## 5g. Opening the foundational boxes — the oracle, the staking rate, the AMM floor, the isolated market
+
+Four more domains (price-oracle networks, liquid staking, AMM cores, isolated lending; see
+`audits/protocols/AUDIT-ORACLE-NETWORKS-CHAINLINK-PYTH.md`, `AUDIT-LST-LIDO-ROCKETPOOL.md`,
+`AUDIT-AMM-UNISWAP-V2-V3-V4.md`, `AUDIT-ISOLATED-LENDING-MORPHO-EULER.md`). Where §5f *dissected*
+coordinates, §5g **opens the boxes that everything else in the corpus sits on top of** — and two of
+them (the oracle, the AMM) are the load-bearing primitives the prior ~50 audits deferred to without
+ever reading directly.
+
+**(a) The price oracle — the universal residual bottoms out in a signer quorum + a consumer check.**
+Every vertical telescoped its dominant residual onto "the oracle." Reading the two dominant networks
+shows that residual is, mechanically, **a permissioned quorum attesting an off-chain number, with no
+price discovery on-chain**. Chainlink `transmit()` verifies `f+1` owner-appointed signer ECDSA sigs over
+a report, takes the **median**, and clamps to immutable `[minAnswer, maxAnswer]` (`OffchainAggregator
+:625-681`) — the clamp that *freezes a feed at the boundary during a real depeg* (the LUNA mechanism).
+Pyth verifies a **Wormhole guardian-set 13/19** VAA + Merkle proof (`ReceiverMessages:22-148`), meaning
+**one global ~13-key quorum sits beneath every Pyth integration on every EVM chain at once** — the
+"dominant residual" of dozens of protocols is *correlated through a single signer set*. Two
+corpus-closing consequences: **(i) "the oracle" is a multisig** — so the independent-looking residuals
+of lending, perps, stablecoins, and prediction markets are not independent; **(ii) half the oracle's
+safety is not in the oracle** — both ship a no-staleness getter (`latestAnswer`/`getPriceUnsafe`) and
+push freshness/bounds/confidence onto the *consumer*, so a complete audit must read the integrating
+contract's oracle-read (`updatedAt`/`conf`/min-max), which is where the deferred trust actually lands.
+This is why the corpus was right to name the oracle the residual *and* why naming it was never enough.
+
+**(b) The staking rate — the same residual, layered and correlated.** LSTs (Lido/Rocket Pool) complete
+the staking stack the corpus already touched from the top (validator → **LST** → restaking/LRT). The
+floor conserves cleanly (Lido rebasing shares `balanceOf = shares·totalPooledEther/totalShares`; Rocket
+Pool exchange-rate `ethValue = reth·totalETH/rethSupply`), but `totalPooledEther`/`totalETH` *include the
+off-chain beacon balance reported by a permissioned committee* (Lido HashConsensus `support ≥ _quorum`;
+Rocket Pool oDAO ≥ 51%), bounded by per-report sanity limits but not removed. This is *mechanically the
+same residual* as the LRT rate above it and the Chainlink/Pyth feeds beside it — **the
+committee-attests-an-off-chain-number residual recurs at every rung of the staking stack**, so an
+integrator stacking LRT-on-LST-on-validator inherits *all* of them, correlated. The two protocols also
+split on the §5e *destructible-principal* axis (Lido socializes slashing into holder balances; Rocket
+Pool insulates rETH behind node ETH-bond + RPL first-loss). And the headline LST risk — the
+**secondary-market depeg** — lives *outside* these contracts entirely: both define only the primary
+oracle-rate mint/redeem; the AMM price is a market fact the contracts neither cause nor prevent. The
+cleanest example in the corpus of a risk that is real, severe, and *entirely non-contractual*.
+
+**(c) The AMM floor — the conservation floor with the residual subtracted, and a fourth enforcement
+mechanism.** Uniswap is the conservation floor in its purest form: v2 is a *single inequality*
+(`x·y ≥ k` on fee-adjusted balances, `UniswapV2Pair:182`), v3 *derives* outputs per-tick from sqrt-price
+math so the invariant holds by construction, and v4 adds **conservation-by-deferred-settlement** — no
+tokens move on swap; every movement is a signed delta in EIP-1153 transient storage, and `unlock`
+**reverts unless every delta nets to zero** (`PoolManager:112`). This is a **fourth floor-enforcement
+mechanism** (joining conservation-by-identity, reserve-locking solvency, and bounded-loss-by-caps): *let
+the books be imbalanced mid-transaction, force them to balance exactly once, globally, at the boundary.*
+v2/v3 have **no residual at all** (immutable math, no oracle, no admin over the floor — the limiting
+case proving a floor can be one line); v4 **deliberately re-introduces one — the hook** — arbitrary pool
+logic that can reshape swap amounts/fees and skim a delta the *caller* pays for, bounded only by net-zero
+accounting (which protects the manager's books, *not* the user's value). The v2→v4 arc is the corpus's
+central dial in a single version bump: delete the trust (v2/v3) → re-add it by choice as the price of
+programmability (v4).
+
+**(d) The isolated market — the oracle as a per-market choice, and deferred-settlement again.** Morpho
+Blue and Euler v2 take the *same* conservative-rounding ERC4626 floor but relocate the oracle residual:
+Morpho makes it **caller-chosen and never-validated** at market creation (`IOracle.price()` is a bare
+`uint256`; the whole risk is the creator's/supplier's oracle choice, *contained per-`Id`*); Euler freezes
+it **per-vault immutable** but conventionally points at a *governed router* (trust moves down a level).
+Both **socialize bad debt to suppliers automatically and permissionlessly** — so the oracle residual and
+the supplier-loss bucket are the *same* risk from two ends. And Euler's **EVC defers solvency checks to
+the end of a batch** (`restoreExecutionContext:916-925`) — *structurally the same mechanism as Uniswap
+v4's net-zero-delta*. Seeing "let it be imbalanced mid-flight, validate once at the boundary" appear in
+a *second, unrelated* domain promotes it from an AMM quirk to a **general primitive**.
+
+**The §5g cross-cut — two findings that close the corpus's two biggest deferrals.** First, **the oracle
+residual is a signer quorum**, often a *shared* one (Pyth's 13/19 under everything), which means the
+per-protocol "dominant residual" verdicts across the whole corpus are **correlated, not independent** —
+a systemic observation no single-protocol audit could surface, and the strongest argument for the
+consumer-side oracle-read being a first-class audit object. Second, **"conservation enforced once at a
+transaction boundary"** (v4 net-zero-delta ≈ EVC deferred checks) is a *recurring* floor-enforcement
+mechanism, the on-chain expression of atomicity (cf. §5f UniswapX), and belongs in the §5e mechanism
+list as a fourth member. Net: §5g grounds the two most-cited abstractions in the corpus — "the oracle"
+and "the conservation floor" — in concrete, mechanized, and in one case *correlated* form, and confirms
+the own-vs-delete dial (§5f) one more time at the most foundational layer: the AMM and Morpho **delete**
+the residual to its irreducible minimum; the oracle networks and LSTs **own** it as a bounded quorum;
+v4's hook and Euler's router **re-add** it by deliberate design choice.
+
+---
+
+## 5h. Three more — the off-chain-actor residual, the attestor dial, and continuous liquidation
+
+Three further domains (account abstraction, cross-chain messaging, crvUSD LLAMMA; see
+`audits/protocols/AUDIT-ACCOUNT-ABSTRACTION-ERC4337.md`,
+`AUDIT-CROSSCHAIN-MESSAGING-LAYERZERO-WORMHOLE.md`, `AUDIT-CRVUSD-LLAMMA-SOFT-LIQUIDATION.md`). Each
+sharpens a residual class already in the taxonomy and one adds a *new liquidation mechanism*.
+
+**(a) ERC-4337 — the residual is an off-chain actor whose *behavior* the contract cannot bound, only
+whose *payment* it can.** Account abstraction has no conservation floor and no oracle; its "floor" is a
+**payment invariant** (the bundler always gets paid), secured by the **validate-then-execute** design —
+the EntryPoint validates all ops first, *prepays the gas from on-chain deposit before any code runs*
+(`AA21`/`AA31`), so a failed execution is contained while a failed validation kills the bundle. The new
+residual: a load-bearing part of the trust — the **ERC-7562 mempool rules** (validation must not read
+`block.timestamp`, touch others' storage, or use banned opcodes) — is **enforced off-chain by the
+bundler and cannot be enforced on-chain**; the contracts even document in their interfaces which rules
+they can't guarantee. The stake is the bond that gives those off-chain rules teeth. And the EntryPoint is
+the **anti-ceiling**: immutable, ungoverned, no owner/upgrade/pause — the strongest "delete the trust"
+instance in the corpus, alongside Uniswap v2 and Liquity. This generalizes a shape seen in Across
+(off-chain dataworker) and MEV/PBS (proposer ordering): **whenever a system needs honest off-chain work,
+the contract bounds the payment but not the behavior; the residual is that actor's honesty + a bond.**
+
+**(b) Cross-chain messaging — the attestor dial, and a *correlated* residual confirmed.** A generic
+cross-chain message has the same irreducible residual as any bridge — *something off-chain must attest
+what happened on the source chain* — and LayerZero vs Wormhole span the axis of *who chooses the
+attestor*. Wormhole centralizes it in **one global 13/19 guardian set** that attests messages, rotates
+itself, **and upgrades its own core** (`Governance.sol`); LayerZero **delegates the choice to each app**
+via a per-app `UlnConfig` (`requiredDVNs[]` + optional threshold), with the only protocol floor being
+"≥1 DVN." This both adds a third point to the prediction-market oracle spectrum (optimistic [Across] ↔
+fixed-quorum [Wormhole] ↔ configurable-quorum [LayerZero]) **and confirms the §5g correlated-residual
+finding**: Wormhole is *the same quorum that sits under Pyth*, so a protocol using Pyth prices **and**
+Wormhole-bridged assets has a **single** 13/19 point, not two independent ones. The own-vs-delete dial
+again: Wormhole owns the attestor (uniform, correlated, self-governing); LayerZero delegates it (flexible,
+only as safe as each app's config).
+
+**(c) crvUSD LLAMMA — a new liquidation-mechanism class: continuous soft-liquidation.** Every prior
+liquidation in the corpus was **discrete** (auction / keeper seizure / SP-offset / ADL — a threshold
+crosses and something happens *at that instant*). LLAMMA is the first **continuous** one: collateral is
+spread across narrow price **bands**, and as the oracle falls through them the LLAMMA AMM
+**automatically converts collateral→crvUSD band-by-band** — *any* arbitrageur calling `exchange()` does
+the work, no `liquidate()`, no trigger, no auction, and it **reverses** on recovery. Health uses
+`get_x_down` (the post-soft-liq value), so devaluation alone doesn't liquidate; discrete `liquidate()`
+(`health < 0`) is only a *fallback* when a fast oracle crash outruns the soft slide. This **dissolves**
+the perps "was the keeper fast enough" timeliness cliff and **migrates** the residual to (i) oracle
+honesty/speed (`limit_p_o`'s per-block clamp + dynamic fee do the load-bearing work) and (ii) the
+borrower's *continuous spread-bleed to arbitrageurs* (replacing the discrete liquidation penalty). It is
+also the corpus's clearest **AMM-as-mechanism**: where Uniswap v4 (§5g) is an AMM as a pure conservation
+floor, LLAMMA is an AMM *repurposed as a liquidation engine*, the band grid encoding a continuous
+collateral→debt conversion schedule.
+
+**The §5h cross-cut — the liquidation taxonomy is now complete, and the residual's "off-chain"
+sub-type is named.** Two consolidations: first, the **liquidation/solvency-enforcement** residual (§5e
+class 4) now has its full member list — *discrete auction, keeper seizure, SP-offset, ADL,* and
+*continuous soft-liquidation* — spanning the spectrum from "a privileged keeper acts at a threshold" to
+"arbitrage continuously and reversibly deleverages with no keeper at all," with the residual sliding from
+*keeper-timeliness* to *oracle-honesty + spread-bleed*. Second, several domains (AA bundler, Across
+dataworker, MEV proposer, messaging attestor) reveal that the **oracle/attestation residual (§5e class
+3) has an *off-chain-actor* sub-type**: an actor whose *payment* the contract bounds but whose *behavior*
+it cannot, backstopped only by a bond and a competitive market. Net: §5h fills the last gaps in the
+mechanism lists rather than adding new classes — the five residual classes (§5e) and the own-vs-delete
+dial (§5f) continue to hold across account abstraction, cross-chain messaging, and a novel continuous
+liquidation, which is the strongest evidence yet that the taxonomy is closed under new paradigms.
+
+---
+
+## 5i. Three inverted trust models — issuer-is-god, off-chain backing, and the anonymity-set floor
+
+Three domains chosen because each **inverts** an assumption the prior ~17 verticals took for granted
+(permissioned/RWA tokens, Ethena USDe, Semaphore; see
+`audits/protocols/AUDIT-PERMISSIONED-TOKENS-USDC-ERC3643.md`, `AUDIT-ETHENA-USDE-OFFCHAIN-CUSTODY.md`,
+`AUDIT-SEMAPHORE-ZK-ANONYMITY-SET.md`). Together they expose three things the corpus's "conservation
+floor + residual" lens had been *implicitly trusting*.
+
+**(a) Permissioned tokens — the freeze key under all of DeFi (the meta-residual).** Every "sound,
+conserve-by-construction floor" verdict in this corpus quietly assumed the collateral token is a **neutral
+ERC20**. USDC violates that *by design*: a single `pauser` halts **all** transfers; a single `blacklister`
+freezes **any** holder bidirectionally (`notBlacklisted` is checked on sender *and* receiver, so a frozen
+address can neither send nor receive — `Blacklistable.sol:50-56` applied at `FiatTokenV1.sol:292-293`); the
+`FiatTokenProxy` admin can **replace the entire implementation** over live balances
+(`AdminUpgradeabilityProxy:107-132`); and the 1:1 backing is **off-chain with off-chain attestation**.
+ERC-3643/T-REX goes further — **identity-gated transfers** (you can't even receive without on-chain KYC,
+`Token.sol:417-426`) plus agent **`forcedTransfer`/`burn` as first-class base-layer clawback**. The
+corpus-shaking consequence: **every protocol holding USDC inherits Circle's freeze/seize/upgrade power as a
+hidden dependency** — blacklisting a pool/router address bricks that contract's USDC leg, a proxy upgrade
+could re-author balance semantics underneath all integrators. This is the **anti-pole of the own-vs-delete
+dial** (maximal issuer control, by regulatory necessity) and a residual the §5e taxonomy implied but never
+isolated: a **token-layer control residual** (destructible principal + governance ceiling, fused and pushed
+*beneath* every protocol that holds the token). The honest restatement of dozens of prior verdicts: *sound,
+conditional on the collateral token being neutral — which, for the dominant collateral, it is not.*
+
+**(b) Ethena USDe — a floor whose backing is off-chain by design.** Every prior stablecoin kept its backing
+on-chain and verifiable (Maker's `vat`, Liquity's troves). USDe is the first whose economic floor is
+*deliberately off-chain*: there is **no oracle, no collateralization check, no peg code** — `EthenaMinting`
+is a routed swap+mint where the collateral is **`safeTransferFrom`'d straight to allowlisted CeFi
+custodians** (`:413-433`) and the dollar peg is held by an **off-chain delta-neutral hedge** on CeFi
+exchanges. So the peg residual — **(a) custodian solvency, (b) perp-exchange counterparty risk, (c)
+funding-rate sign** — is *structurally invisible to on-chain analysis*. The on-chain code is a *sound
+operator interface* (EIP-712 signed orders, per-block rate limits, a halt-only `GATEKEEPER_ROLE`), but it
+makes **no solvency claim**; even the yield (sUSDe) is an off-chain-attested number streamed by a privileged
+rewarder. This is the dual of (a): USDC's *issuer* can freeze an on-chain balance; USDe's *backing* is
+off-chain and unverifiable. Both are the same lesson at the asset layer — **the on-chain conservation floor
+is only as real as the off-chain facts it imports** (a reserve, a custodian, a hedge, a funding rate).
+
+**(c) Semaphore — the anonymity-set floor, same zk residual as the rollups.** Semaphore conserves
+**eligibility/identity instead of value**, with the *same machinery* a zk-rollup uses for state. The floor
+is an **anonymity set** — a Poseidon Merkle tree of identity commitments whose *size is the privacy
+guarantee*. A Groth16 proof binds `(merkleTreeRoot, nullifier, message, scope)` so a member proves "I'm
+*some* leaf and haven't signaled before in this scope" *without revealing which*; the **nullifier is
+anonymous double-spend prevention**. The connecting point: **the on-chain verifier proves almost nothing
+itself** — it never re-derives membership, it trusts the *circuit*, and only checks a pairing + a recent
+root + nullifier-not-reused. So soundness rests on **exactly the §5c zk-rollup residual** — the trusted-setup
+ceremony (toxic-waste `tau` ⇒ forged non-member proofs, silently), circuit correctness, and Poseidon
+collision-resistance — **plus one privacy-only term: the anonymity set can be cryptographically sound and
+still hide nothing** (a 1-member group gives zero privacy; the contract only rejects *empty* groups). The
+analog, for a privacy primitive, of "the conservation floor holds but the oracle lies."
+
+**(a-deep) USDC vs USDT — the two settlement assets are different gods.** A deep comparative
+(`AUDIT-LARGECAP-STABLES-USDC-USDT.md`) shows the issuer-is-god model is *not uniform* across the two tokens
+that settle most of crypto. The decisive divergence is **seizure**: USDT's owner can `destroyBlackFunds`
+(zero a blacklisted balance and **burn it from supply** — irreversible confiscation), where USDC's
+blacklister can only **freeze**. USDT also has a **live owner-settable transfer-fee lever** (`setParams`,
+capped <0.2%, currently 0) and an **upgrade-by-forwarding** model (`deprecate` → every call delegates to an
+arbitrary new contract), all on a single `^0.4.17` owner key with single-step ownership; USDC **splits**
+authority across five logic roles + a *separate* proxy-admin key (policy vs code, two Circle multisigs),
+freezes-not-destroys, uses a transparent proxy, and adds a modern gasless surface (EIP-2612/3009/1271) whose
+own subtlety is the `transferWithAuthorization` front-run/nonce-grief that `receiveWithAuthorization`'s
+`to == msg.sender` gate exists to close. And USDT **breaks the ERC20 ABI** (no `bool` return + fee-on-transfer
+lever — the footgun that forced DeFi onto `SafeERC20`), a property every "conservation floor" holding USDT
+silently depends on handling. Both share the dominant residual — **off-chain bank reserves + partner-gated
+redemption**, proven live by USDC's ~\$0.87 SVB depeg (Mar 2023). The lesson sharpens the meta-residual:
+*the freeze key under DeFi is not one key — it's two different issuers with different powers, and the more
+unilateral one (USDT: seize + tax + forward-upgrade, single owner) is also the larger and the one on the
+oldest code.*
+
+**The §5i cross-cut — the floor's three hidden dependencies, named.** These three inversions reveal that the
+corpus's "the floor conserves" verdict always rested on three things it had been *trusting without saying
+so*: **(1) the token layer is neutral** (false for USDC — the issuer can freeze the floor); **(2) the
+backing is on-chain and real** (false for USDe — it's an off-chain CeFi hedge); and **(3) the proof/identity
+machinery is sound** (for Semaphore/zk, a trusted-setup-and-circuit assumption, plus the set must be large
+enough to mean anything). None of these is visible at the protocol level — each only appears when you *read
+one layer down* (the token, the custodian, the ceremony). This is the strongest vindication of the corpus's
+core method — **recompute, don't trust the summary** — extended from "recompute the protocol's math" to
+"recompute the *assumptions under* the protocol": the asset it holds, the backing behind that asset, and the
+cryptography under the proof. The five residual classes (§5e) and the own-vs-delete dial (§5f) still hold —
+permissioned tokens are the dial's maximal-own pole, AA/Uniswap/Liquity its maximal-delete pole — but §5i
+adds the meta-lesson that **a floor verdict is only as sound as the layer beneath the one you audited.**
+
+---
+
+## 5j. The stablecoin trust-model spectrum — what actually backs a "dollar"
+
+A focused stablecoin sweep (USDC/USDT deep-dive, DAI/CCTP, FRAX, Ethena USDe; see
+`AUDIT-LARGECAP-STABLES-USDC-USDT.md`, `AUDIT-DECENTRALIZED-DOLLARS-DAI-CCTP.md`,
+`AUDIT-FRAX-FRACTIONAL-ALGO-AMO.md`, `AUDIT-ETHENA-USDE-OFFCHAIN-CUSTODY.md`) lets the residual lens
+classify *every* major stablecoin by **what its dollar actually rests on** — and the answer is never "a
+dollar on-chain." The spectrum, by backing mechanism and dominant residual:
+
+| Stablecoin | Backing mechanism | Dominant residual | Issuer power |
+|---|---|---|---|
+| **USDT** | off-chain reserve (banks/T-bills) | reserve solvency + gated redemption | **maximal** — single owner, freeze + **`destroyBlackFunds` seizure** + fee lever + deprecate-and-forward |
+| **USDC** | off-chain reserve (banks/T-bills) | reserve solvency (SVB depeg) + gated redemption | freeze-only, **split 5-role + separate proxy admin**; cross-chain via **CCTP Circle attester (1-of-1)** |
+| **DAI** | overcollateralized vaults **+ USDC via the PSM** | **inherited Circle freeze** (PSM USDC custody) + RWA counterparty | Maker governance (decentralized) over the *size*, not the *freeze* |
+| **FRAX** | fractional: part collateral, part **FXS (reflexive)** + **AMO strategies** | reflexive death-spiral + AMO self-reported solvency + oracle | governance, largely **undelayed**, over an unbacked mint |
+| **USDe (Ethena)** | **off-chain delta-neutral hedge** (CeFi custody + perp short) | custodian solvency + perp counterparty + funding-rate sign | admin + halt-only gatekeeper; backing **off-chain, unauditable** |
+| **LUSD (Liquity)** | ETH-only overcollateralized, **redemption-arbitrage peg** | oracle + the borrower-bears-redemption design | **none** — immutable, governance renounced |
+
+**The unifying law.** *No stablecoin's dollar is an on-chain invariant.* Every one rests on a residual that is
+either **off-chain** (a bank reserve: USDC/USDT; a CeFi hedge: USDe; an RWA vault: DAI/FRAX), **reflexive** (a
+governance token backing itself: FRAX/FXS), or **redemption-arbitrage under an oracle** (Liquity) — and the
+*degree of decentralization of the issuance mechanism is independent of the residual underneath*: DAI is
+governed decentrally yet inherits Circle's freeze; USDe's contracts are clean yet make no solvency claim;
+Liquity alone removes the issuer entirely but pays for it with redemption falling on the riskiest borrowers and
+total oracle dependence. The own-vs-delete dial (§5f) sorts them — USDT maximal-own, Liquity maximal-delete,
+the rest between — and the §5i "read one layer down" lesson is *load-bearing for stablecoins specifically*:
+the only way to know what backs a dollar is to follow it past the token contract to the reserve, the
+custodian, the AMO, or the attester. The honest one-line summary for any stablecoin audit: **name the backing
+mechanism, name where it lives (on-chain / off-chain / reflexive), and name who can freeze, seize, or
+mis-report it — because the peg is a claim on *that*, never on the token's own code.**
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
@@ -500,7 +956,10 @@ artifacts only; nothing catastrophic was ever posted.
 > irreducible 6b equivalence/oracle.* The framework found the one real bug, named every trust boundary
 > in proportion, and never overclaimed. The expansion added no findings — it added *resolution*: a
 > filled-in conservation ladder, a settlement-seam trust spectrum (validity → fraud → multisig), and a
-> cross-language determinism spine (OCC) whose negation is precisely the one bug.
+> cross-language determinism spine (OCC) whose negation is precisely the one bug. The prediction-market
+> vertical (§5d, four poles) then *corrected* a law rather than confirming it: the floor is not "always
+> conserve" but "winners always paid," met by conservation / reserve-locking solvency / bounded-loss-by-caps
+> — with LP capital as a risk bucket present in exactly the non-conservation floors.
 
 Companion index: `AUDIT-METHODOLOGY.md`, `AUDIT-METHODOLOGY-CHECKLIST.md`,
 `AUDIT-METHODOLOGY-RETROSPECTIVE.md` (§1–11), `AUDIT-GOVERNANCE-CEILING.md`,
