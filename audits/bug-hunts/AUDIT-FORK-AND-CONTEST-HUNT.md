@@ -157,6 +157,45 @@ launch).
 
 ---
 
+## Batch 3 — diversifying the bug class (cross-chain auth, calldata-whitelist, peg/redemption)
+
+Beyond oracle-staleness, into the seams where *different* hacks live: bridge message-verification (the
+highest-historical-risk category), Safe-guard / calldata-whitelist access control, and depeg-swap
+conservation.
+
+| Target | Type | Class hunted | Verdict |
+|---|---|---|---|
+| **Stargate v2** (OApp on LayerZero v2) | production bridge | message auth / source-binding / replay / mint-binding | **clean** — handlers reachable only via the LZ peer-checked endpoint *and* `onlyCaller`-gated; mint bound to authenticated amount+recipient; replay covered by LZ nonces + the bus hash-chain |
+| **Kleidi** (`code-423n4/2024-10`) | contest | calldata-whitelist bypass, Safe-guard bypass, timelock FSM, recovery sigs | **clean** — wildcard always sole element; overlap check *over*-strict (no smuggling); contest findings already fixed pre-snapshot (`AUDIT_LOG.md`) |
+| **IQ AI** (`code-423n4/2025-01`) | contest | governance / accounting / spot-price | **bugs found, all known** — H-01 4% quorum (not 25%), M-03 stale-variable threshold check, M-02 balance-injection DOS, M-01 pre-seeded-pair leak (verified vs the published C4 report) |
+| **Cork Protocol** (`sherlock 2024-08`) | contest | peg/redemption conservation, AMM, DS/CT epochs | **real defect found (author-acknowledged, conditional)** — `unsafeIssueToLv` mints CT+DS + locks RA at fixed 1:1, **ignoring the DS `exchangeRate`** → PSM `Σout≠Σin` whenever `rate != 1e18`; author `FIXME` at `PsmLib.sol:112-114`; conditional on a non-unit rate; closed contest |
+
+**Two methodological points from batch 3:**
+- **The conservation-floor lens caught its own class.** Cork's `unsafeIssueToLv` is a textbook `Σ in ≠ Σ out`
+  (lock `ctAmount` RA but mint `ctAmount` CT+DS at 1:1 while redemption pays `amount·rate/1e18`) — exactly the
+  asymmetry the whole corpus is built to find. The author had already flagged it with a `FIXME`, and it is
+  conditional on a non-unit `exchangeRate`, so it is a known/acknowledged contest issue, not a novel live one —
+  but it shows the lens fires on the right thing.
+- **A contest's "start" commit can be post-fix.** Kleidi's real findings were already fixed before the snapshot
+  commit (`docs/AUDIT_LOG.md` entries 09/17–09/30), so the hunt correctly returned clean on the *fixed* code —
+  a reminder that "contest repo" ≠ "buggy at every commit."
+
+Honest unverified caveat (Cork, class 3): the flash-swap repayment math assumes the Cork-Technology `v2-core`
+AMM fork charges **0% fee**; if the deployed pair retained the stock 0.3%, DS swaps would revert/underflow. The
+fork's `UniswapV2Pair` couldn't be fetched offline to byte-confirm the fee constant — flagged, not concluded.
+
+---
+
+## Final tally — 15 targets across 3 batches
+
+| Category | Count | Targets |
+|---|---|---|
+| **Clean** | 11 | Sablier, Solidly forks, Compound forks, Symbiotic, v4-periphery, Mellow, Wildcat, Gearbox, Dopex, Stargate v2, Kleidi |
+| **Contest / known bugs found** | 3 | munchables (deadlock + retroactive-tax + over-mint), IQ AI (4% quorum + stale-var check + DOS), Cork (rate-ignoring conservation break, author-`FIXME`, conditional) |
+| **Live finding (disclosed)** | 1 | [redacted lending protocol] — missing consumer-side Chainlink staleness check; verified from source, disclosed, redacted here |
+
+---
+
 ## Synthesis — what the hunt established
 
 1. **The method discriminates.** Five production-audited targets → clean; one ground-truth-buggy contest
