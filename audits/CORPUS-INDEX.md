@@ -111,6 +111,7 @@ by one of (capstone §5d, §5g):
   - **off-chain engine layer** ([infra hunt](bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md)) — CometBFT (BFT consensus-safety) + mev-boost (PBS trust); worst case is fork/halt or cheated-proposer, not value leak.
   - **chain-security frontier** ([frontier hunt](bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md)) — Reth (execution client), OP Stack FaultDisputeGame (fraud proof), Babylon (Bitcoin staking); a bug = chain split / forged withdrawal / unslashable BTC.
   - **verification layer** ([verify-external-truth hunt](bug-hunts/AUDIT-VERIFICATION-LAYER-HUNT.md)) — Lighthouse (beacon/fork-choice), tBTC v2 (BTC SPV bridge), Automata DCAP (on-chain TEE attestation); the bug class is *accept a forged proof of external truth*; DCAP's HEAD is itself the recomputed-and-confirmed cert-chain-bypass fix.
+  - **coordination layer** ([admission-gate hunt](bug-hunts/AUDIT-COORDINATION-LAYER-HUNT.md)) — Hyperlane (interop message verification), Celestia (NMT/DA soundness), Arbitrum DAO (governance + cross-chain timelock); the bug class is *admit an illegitimate claim into privileged action* (forge a message / forge availability / execute the unauthorized).
 
 ---
 
