@@ -110,6 +110,7 @@ by one of (capstone §5d, §5g):
   - **cross-VM layer** ([cross-VM hunt](bug-hunts/AUDIT-CROSS-VM-LIVE-HUNT.md)) — six live targets on six paradigms, each on its *native* taxonomy: crvUSD (Vyper), Kamino (Solana), Privacy Pools (zk), Cetus (Move), Osmosis (Cosmos-SDK), EntryPoint+Kernel (ERC-4337).
   - **off-chain engine layer** ([infra hunt](bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md)) — CometBFT (BFT consensus-safety) + mev-boost (PBS trust); worst case is fork/halt or cheated-proposer, not value leak.
   - **chain-security frontier** ([frontier hunt](bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md)) — Reth (execution client), OP Stack FaultDisputeGame (fraud proof), Babylon (Bitcoin staking); a bug = chain split / forged withdrawal / unslashable BTC.
+  - **verification layer** ([verify-external-truth hunt](bug-hunts/AUDIT-VERIFICATION-LAYER-HUNT.md)) — Lighthouse (beacon/fork-choice), tBTC v2 (BTC SPV bridge), Automata DCAP (on-chain TEE attestation); the bug class is *accept a forged proof of external truth*; DCAP's HEAD is itself the recomputed-and-confirmed cert-chain-bypass fix.
 
 ---
 

@@ -43,6 +43,7 @@ dial · every doc by vertical). **The synthesis → [`methodology/AUDIT-CAPSTONE
 | [AUDIT-CROSS-VM-LIVE-HUNT.md](bug-hunts/AUDIT-CROSS-VM-LIVE-HUNT.md) | Beyond Solidity: live hunts on **6 different VMs/paradigms** — crvUSD (**Vyper**), Kamino (**Solana**), Privacy Pools (**zk**), Cetus (**Move**/Sui), Osmosis (**Cosmos-SDK**/Go), EntryPoint+Kernel (**ERC-4337**) — each on its own native bug taxonomy; all clean |
 | [AUDIT-OFFCHAIN-INFRA-HUNT.md](bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md) | Dropping to the **engine layer** (Go): CometBFT (BFT **consensus**-safety — fork/halt taxonomy) + mev-boost (**PBS** block-building trust); both clean, recent CVEs confirmed patched |
 | [AUDIT-CHAIN-SECURITY-FRONTIER.md](bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md) | The highest altitude: **Reth** (execution client — chain-split/DoS), **OP Stack FaultDisputeGame** (interactive **fraud proof**), **Babylon** (**Bitcoin-staking** hybrid); a bug = fork / forged withdrawal / unslashable BTC. All clean |
+| [AUDIT-VERIFICATION-LAYER-HUNT.md](bug-hunts/AUDIT-VERIFICATION-LAYER-HUNT.md) | The **verify-external-truth** cut: **Lighthouse** (beacon/attestation + fork-choice), **tBTC v2** (BTC SPV bridge — Σ tBTC ≡ SPV-proven BTC), **Automata DCAP** (on-chain **TEE attestation** — HEAD *is* the cert-chain-bypass fix). All clean |
 
 ## ⛓️ chains/ — L1 / L2 / rollup / privacy / cross-chain
 Grouped by conservation mechanism:
