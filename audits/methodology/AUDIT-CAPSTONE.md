@@ -908,6 +908,38 @@ adds the meta-lesson that **a floor verdict is only as sound as the layer beneat
 
 ---
 
+## 5j. The stablecoin trust-model spectrum — what actually backs a "dollar"
+
+A focused stablecoin sweep (USDC/USDT deep-dive, DAI/CCTP, FRAX, Ethena USDe; see
+`AUDIT-LARGECAP-STABLES-USDC-USDT.md`, `AUDIT-DECENTRALIZED-DOLLARS-DAI-CCTP.md`,
+`AUDIT-FRAX-FRACTIONAL-ALGO-AMO.md`, `AUDIT-ETHENA-USDE-OFFCHAIN-CUSTODY.md`) lets the residual lens
+classify *every* major stablecoin by **what its dollar actually rests on** — and the answer is never "a
+dollar on-chain." The spectrum, by backing mechanism and dominant residual:
+
+| Stablecoin | Backing mechanism | Dominant residual | Issuer power |
+|---|---|---|---|
+| **USDT** | off-chain reserve (banks/T-bills) | reserve solvency + gated redemption | **maximal** — single owner, freeze + **`destroyBlackFunds` seizure** + fee lever + deprecate-and-forward |
+| **USDC** | off-chain reserve (banks/T-bills) | reserve solvency (SVB depeg) + gated redemption | freeze-only, **split 5-role + separate proxy admin**; cross-chain via **CCTP Circle attester (1-of-1)** |
+| **DAI** | overcollateralized vaults **+ USDC via the PSM** | **inherited Circle freeze** (PSM USDC custody) + RWA counterparty | Maker governance (decentralized) over the *size*, not the *freeze* |
+| **FRAX** | fractional: part collateral, part **FXS (reflexive)** + **AMO strategies** | reflexive death-spiral + AMO self-reported solvency + oracle | governance, largely **undelayed**, over an unbacked mint |
+| **USDe (Ethena)** | **off-chain delta-neutral hedge** (CeFi custody + perp short) | custodian solvency + perp counterparty + funding-rate sign | admin + halt-only gatekeeper; backing **off-chain, unauditable** |
+| **LUSD (Liquity)** | ETH-only overcollateralized, **redemption-arbitrage peg** | oracle + the borrower-bears-redemption design | **none** — immutable, governance renounced |
+
+**The unifying law.** *No stablecoin's dollar is an on-chain invariant.* Every one rests on a residual that is
+either **off-chain** (a bank reserve: USDC/USDT; a CeFi hedge: USDe; an RWA vault: DAI/FRAX), **reflexive** (a
+governance token backing itself: FRAX/FXS), or **redemption-arbitrage under an oracle** (Liquity) — and the
+*degree of decentralization of the issuance mechanism is independent of the residual underneath*: DAI is
+governed decentrally yet inherits Circle's freeze; USDe's contracts are clean yet make no solvency claim;
+Liquity alone removes the issuer entirely but pays for it with redemption falling on the riskiest borrowers and
+total oracle dependence. The own-vs-delete dial (§5f) sorts them — USDT maximal-own, Liquity maximal-delete,
+the rest between — and the §5i "read one layer down" lesson is *load-bearing for stablecoins specifically*:
+the only way to know what backs a dollar is to follow it past the token contract to the reserve, the
+custodian, the AMO, or the attester. The honest one-line summary for any stablecoin audit: **name the backing
+mechanism, name where it lives (on-chain / off-chain / reflexive), and name who can freeze, seize, or
+mis-report it — because the peg is a claim on *that*, never on the token's own code.**
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
