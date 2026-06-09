@@ -41,6 +41,7 @@ dial · every doc by vertical). **The synthesis → [`methodology/AUDIT-CAPSTONE
 | [AUDIT-ROLLUP-ORACLES-RESIDUALS.md](bug-hunts/AUDIT-ROLLUP-ORACLES-RESIDUALS.md) | Opening the named oracles: Optimism Cannon FPVM + zkSync Verifier |
 | [AUDIT-FORK-AND-CONTEST-HUNT.md](bug-hunts/AUDIT-FORK-AND-CONTEST-HUNT.md) | Active fork-diff + invariant hunt across 26 targets in 6 batches (forks, contests, then **live bounty-eligible** Across/Euler v2/Fluid); discriminates across the full taxonomy — 21 clean, 4 contest-known, 1 live-disclosed-redacted |
 | [AUDIT-CROSS-VM-LIVE-HUNT.md](bug-hunts/AUDIT-CROSS-VM-LIVE-HUNT.md) | Beyond Solidity: live hunts on **6 different VMs/paradigms** — crvUSD (**Vyper**), Kamino (**Solana**), Privacy Pools (**zk**), Cetus (**Move**/Sui), Osmosis (**Cosmos-SDK**/Go), EntryPoint+Kernel (**ERC-4337**) — each on its own native bug taxonomy; all clean |
+| [AUDIT-OFFCHAIN-INFRA-HUNT.md](bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md) | Dropping to the **engine layer** (Go): CometBFT (BFT **consensus**-safety — fork/halt taxonomy) + mev-boost (**PBS** block-building trust); both clean, recent CVEs confirmed patched |
 
 ## ⛓️ chains/ — L1 / L2 / rollup / privacy / cross-chain
 Grouped by conservation mechanism:
