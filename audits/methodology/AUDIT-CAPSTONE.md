@@ -540,6 +540,74 @@ and **adds a missing axis** the L1/rollup corpus never exercised: the floor is *
 
 ---
 
+## 5e. Three DeFi verticals — slashing, continuous solvency, and the unpriceable-collateral seam
+
+Three more domains (restaking/LRTs, on-chain perps, NFT-finance lending; see
+`audits/protocols/AUDIT-RESTAKING-EIGENLAYER-LRT.md`, `AUDIT-PERPS-LIQUIDATION-GMX.md`,
+`AUDIT-NFT-LENDING-BENDDAO-NFTFI-BLEND.md`) each added a *distinct* extension to the residual
+taxonomy rather than re-confirming it. The unifying observation: **§5d's floor mechanisms recur,
+but each vertical introduces one genuinely new dimension the prior work never exercised.**
+
+**(a) Restaking — a fourth residual class: *destructible principal* (slashing).** EigenLayer's
+floor is the strongest conservation member yet — an ERC4626 share vault with the virtual-shares
+inflation guard (`StrategyBase.sol:38,42,118`, `(balance+1e3)/(shares+1e3)`). But above it sits
+something no prior vertical had: a third party (an AVS's designated **slasher**) can *destroy* up
+to 100% of an operator's allocated magnitude (`AllocationManager.slashOperator:72,428`),
+propagated pro-rata to stakers and reaching into the withdrawal queue. Conservation floors answer
+"can the system always pay what it owes"; **slashing answers a different question — "can a third
+party deliberately reduce what you are owed" — and the answer is *yes, by design, bounded and
+attributable.*** The vertical also inverts the oracle finding: EigenLayer's base "oracle" is the
+**most trustless of the entire corpus** (a cryptographic EIP-4788 beacon-state proof,
+`EigenPod.sol:36,736-745`), yet the LRT built on top (ether.fi) reintroduces a **committee-attested
+exchange rate** with only a temporary APR-band guard (`EtherFiAdmin.sol:254-257`) as the weakest
+link — proof that *the residual migrates to whatever layer re-tokenizes the position*, and that
+wrapping a trustless primitive in a liquid token can **lower** the trust floor.
+
+**(b) Perps — the floor becomes a *continuously-moving* solvency invariant.** GMX is the
+house-counterparty family (Azuro's, §5d) under continuous price motion. The floor is a hard
+on-chain invariant `reserved ≤ pool ≤ token balance` (`Vault.sol:1136,1143,1178`) that guarantees
+*winners are paid* — but keeping the *pool* whole additionally requires **a liquidation engine
+that fires in time** (`VaultUtils.validateLiquidation:61-105`) plus a **bad-debt backstop**. That
+backstop is the perps-specific residual, and its v1→v2 evolution is the same "who bears the
+shortfall" question §5d raised, now answered under time pressure: **v1 socializes the shortfall to
+LPs with no insurance fund/no ADL; v2 adds ADL** (force-deleverage winners once trader PnL vs the
+pool exceeds `MAX_PNL_FACTOR_FOR_ADL`, `AdlUtils.sol:105-133`). The oracle is a **fifth type** — a
+low-latency keeper push **clamped to a Chainlink reference** (`FastPriceFeed.getPrice:272-330`;
+v2 `Oracle._validateRefPrice:330-345`). New dimension: **timeliness** — a solvency invariant that
+must be *continuously re-enforced*, not locked once.
+
+**(c) NFT lending — when the collateral itself is unpriceable.** The cleanest demonstration that
+**the oracle choice and the liquidation design are one decision, and the residual is conserved —
+it only moves.** Three answers: BendDAO **leans in** (single admin-pushed floor oracle +
+English-auction liquidation; residual = oracle key custody + thin-floor manipulation + auction
+liveness; pool/LPs socialize bad debt — `NFTOracle.sol:186,355-384`, `LiquidateLogic.sol`);
+NFTfi **refuses** (bilateral, no LTV, no oracle; lender seizes at maturity; **zero protocol bad
+debt**; residual = lender underwriting — `DirectLoanBaseMinimal.sol:617-656`); Blend **replaces**
+the oracle with a market (perpetual loan, rising-rate Dutch *refinance* auction — the NFT is
+"underwater" only when no one will lend even at ~1000% APR; residual = lender vigilance + the
+unconditioned UUPS upgrade key — `Blend.sol:328-374,251-283`, `CalculationHelpers.sol:43-94`). The
+novelty: a design (Blend) that **deletes** the valuation seam by turning liquidation *itself* into
+price discovery — paid for with a less-bounded upgrade key.
+
+**The cross-vertical law, sharpened once more.** Every system still reduces to *a conservation/
+solvency floor + a dominant residual*, and the residual is **conserved — it only relocates** with
+the design choice. But the residual is now seen to come in **five distinguishable classes**, and a
+mature audit names which one(s) a target carries:
+1. **6b-equivalence / conservation-accounting** (can value leak by construction — the original);
+2. **governance ceiling** (what the admin/upgrade key can do);
+3. **oracle / attestation** (who sets the truth/price — now mapped across *seven* oracle types from
+   cryptographic-proof ↔ keeper-clamp ↔ optimistic ↔ token-vote ↔ trusted-feed ↔ self-token-fork ↔
+   committee-attested, on an expressiveness↔determinism↔trustlessness surface);
+4. **liquidation/solvency-enforcement timeliness** (house floors under price motion — must be
+   *continuously* re-enforced; backstop = LP-socialization vs ADL vs auction);
+5. **destructible principal** (slashing — a third party can deliberately reduce what you are owed).
+The discipline is unchanged: name the floor's *actual mechanism*, name *which residual class(es)*
+dominate, grade confidence, and treat "found nothing" as "this analysis found nothing." The value
+of these three verticals was not three more "sound" verdicts — it was discovering that the residual
+**has a richer type system** than the L1/rollup corpus alone revealed.
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
