@@ -608,6 +608,77 @@ of these three verticals was not three more "sound" verdicts — it was discover
 
 ---
 
+## 5f. Settlement, governance, and the peg — closing three coordinates the corpus kept deferring
+
+Three more domains (cross-chain intents/solvers, on-chain governance/timelock, stablecoin CDPs; see
+`audits/protocols/AUDIT-INTENTS-UNISWAPX-ACROSS.md`,
+`AUDIT-GOVERNANCE-TIMELOCK-ATTACK-SURFACE.md`, `AUDIT-STABLECOIN-CDP-MAKER-LIQUITY.md`). Unlike §5d/§5e,
+these did not add *new* residual classes — they **dissected three the corpus had named but always
+deferred to**: the settlement seam (B17), the governance ceiling, and the oracle, now seen through the
+peg.
+
+**(a) Intents — the settlement seam at both extremes, and the case where the residual is *empty*.**
+UniswapX settles **same-chain atomically**: the resolved (Dutch-decayed) output is *forced* to the
+swapper in the same tx the input is pulled via Permit2 (`BaseReactor.sol:116`), so **there is no
+oracle, no attestation, no residual** — a fill that can't deliver simply reverts, and governance is
+hardcoded out (immutable reactor, 5 bps fee cap, `ProtocolFees.sol:30`). This is the floor at its
+theoretical best: *atomicity is the unique case where the residual relocates to nothing.* Across
+settles **cross-chain optimistically**: a relayer fronts the destination payout out of pocket
+(`SpokePool.fillRelay → :1669`), but **nothing on-chain proves that fill happened** — the refund is
+asserted off-chain by a dataworker's Merkle root, admitted only via a UMA optimistic dispute window +
+the canonical L1↔L2 bridge (`HubPool.proposeRootBundle:560`, `executeRootBundle` adapter
+`delegatecall :678`). The instant settlement spans chains, the **destination-fill attestation**
+residual reappears and dominates — and it is the *same* optimistic-oracle seam (UMA) used by Polymarket
+and Azuro resolution, now answering "did the remote chain get paid" instead of "did the event happen."
+**Unification: optimistic attestation is one reusable answer to the universal residual**, whatever the
+question.
+
+**(b) Governance/timelock — the mechanism *behind* the ceiling coordinate, finally opened.** Every
+prior audit ended at "a governance ceiling" and deferred. This is the dissection, and it collapses to
+one equation: **a protocol's security ceiling = the security of its token-weighted vote + the
+timelock's minDelay exit window.** No privileged action exists above that line; an attacker who wins
+the vote inherits the timelock's full authority over every downstream contract (incl. proxy upgrades
+via a normal `call`). Two structural defenses make it survivable: **(i) vote weight is read at a *past
+snapshot block*** (`Votes.getPastVotes` + `_validateTimepoint` revert on `≥ clock()`,
+`Governor.sol`-side; Compound `Comp.getPriorVotes` `require(blockNumber < block.number)`) — which is the
+*complete* answer to flash-loan vote-borrowing (borrowed-and-repaid tokens write no checkpoint at the
+already-past snapshot ⇒ zero weight); and **(ii) the minDelay is a user *exit window***, not
+anti-attacker — capture is total but observable and escapable. The real attack surface is **almost
+entirely configuration**: `votingDelay == 0` (OZ allows it, collapses the snapshot gap; Compound floors
+it at 1), `proposalThreshold == 0`, open `EXECUTOR_ROLE`/stray timelock proposers, cancel-griefing.
+**This resolves the §4c most-to-least-centralized spectrum into four readable parameters**
+(`votingDelay` / `proposalThreshold` / `minDelay` / role set) — "name the ceiling" now means name those,
+not hand-wave at "the multisig."
+
+**(c) Stablecoin CDPs — the peg as an oracle-constraint on a conservation floor, and the
+governance dial at its sharpest.** Both Maker and Liquity have a *conserve-by-construction* collateral
+floor — Maker's `vat.frob` enforces `art·rate ≤ ink·spot (:163)` on checked double-entry arithmetic;
+Liquity enforces `ICR ≥ 110%` with **no governance mint path** (`LUSDToken.mint :99`). But a stablecoin
+needs more than conservation: it needs a **peg**, which the ledger alone can't guarantee because "$1"
+is external. The two answers are the lean-in/delete dial applied to the *admin key itself*: **Maker
+governs the peg** — adjustable risk params, surplus/debt auctions, DSR, and an **uncapped MKR-mint
+backstop** (`flop.sol:165`), with `auth` holders able to rewrite every param and even swap any ilk's
+price feed (ceiling = "MKR vote + OSM delay"); **Liquity deletes governance** — ownership renounced,
+all params `constant`, and the peg pinned by a **permissionless redemption arbitrage** (anyone swaps 1
+LUSD → $1 of ETH from the riskiest troves, `TroveManager:925-1023`) that needs no admin. Even their
+oracle *failure* philosophy follows the dial: Maker fails **closed** (`spot → 0`, liquidatable —
+acceptable because governance can intervene); Liquity fails **open** (runs on `lastGoodPrice` — because
+there is no admin to pause).
+
+**The cross-cut.** §5f shows the same dial — **own the residual vs engineer it away** — recurring at
+*three different layers*: settlement (optimistic attestation vs atomic-no-residual), the admin key
+(Maker govern-everything vs Liquity renounce-everything), and the oracle (swap-the-feed vs
+fixed-with-heuristics). It is the same shape as NFT-lending's lean-in/refuse/replace (§5e) and the
+prediction-market floor choices (§5d). The corpus-wide statement is now sharp: **every system reduces
+to a conservation/solvency floor plus a residual; the residual comes in five classes (§5e); and for
+each class a designer faces one recurring dial — *take the trust and bound it* (governance, oracles,
+optimistic attestation, ADL) *or delete the trust and pay in flexibility* (immutability, atomicity,
+redemption arbitrage, self-token mechanisms).** Auditing is naming the floor's mechanism, the dominant
+residual class, and **which side of that dial the design chose** — then verifying the bound (if taken)
+or the structural substitute (if deleted) actually holds.
+
+---
+
 ## 6. Posture & disclosure summary
 
 Defensive throughout: no exploit, no PoC, no weaponization; "no bare safe." The single
