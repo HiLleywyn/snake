@@ -396,6 +396,25 @@ essentially closed; the live risk concentrates at the **fail-safe frontier** (fr
 dual-representation/settlement/equivalence code — caught & fixed) and at the named **off-chain /
 cross-client / governance / oracle** substrate.
 
+**The active bug-hunt arc (extension of 5b — `bug-hunts/`).** Past the two consensus-delta hunts, the
+method was driven *outward and upward* as a live fork-diff/invariant hunt, holding its discrimination at
+every altitude (true negatives on audited code, real highs on buggy contest code, honest non-findings,
+**one disclosed-and-redacted live finding** — a consumer-side oracle-staleness gap):
+- **app/contract** — [fork-and-contest hunt](../bug-hunts/AUDIT-FORK-AND-CONTEST-HUNT.md) (26 targets / 6
+  batches, ending on live bounty-eligible Across/Euler v2/Fluid);
+- **cross-VM** — [cross-VM hunt](../bug-hunts/AUDIT-CROSS-VM-LIVE-HUNT.md) (six paradigms on their *native*
+  taxonomies: Vyper/Solana/zk/Move/Cosmos-SDK/ERC-4337);
+- **off-chain engine** — [infra hunt](../bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md) (CometBFT consensus-safety +
+  mev-boost PBS trust);
+- **chain-security frontier** — [frontier hunt](../bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md) (Reth client +
+  OP fraud proof + Babylon BTC staking — a bug = chain split / forged withdrawal / unslashable BTC).
+
+The arc *confirms* the fail-safe-substrate law from the live-protocol side: the production/live targets
+were clean with protocol-favoring rounding and complete guards; the real defects were on buggy contest
+code or in the consumer-side integration seam, never the well-studied primitive — and the higher the
+altitude, the more the "invariant" *is* the whole game (state-root equivalence, false-claim-never-valid,
+always-slashable-BTC), so the job became locating the specific code that makes that one sentence true.
+
 ---
 
 ## 5c. The full-stack trust traversal — seven layers, one law

@@ -105,7 +105,11 @@ by one of (capstone §5d, §5g):
   [zk-proving](zk-proving/AUDIT-ZK-PROVING-SWEEP.md) (observe-before-sample / prove-before-answer) ·
   [p2p-eclipse](p2p-eclipse/AUDIT-P2P-ECLIPSE-SWEEP.md) (observe-before-sample).
 - **The one finding** — [MemeCore PoSA](finding-memecore/AUDIT-MEMECORE-POSA.md) (latent consensus landmine, 7 passes, disclosed fix-first).
-- **Bug-hunts** ([`bug-hunts/`](README.md#-bug-hunts--stress-testing-the-one-finding-claim)) — stress-testing the one-finding claim across large-cap deltas, fresh commits, mid-cap DeFi, and rollup oracles.
+- **Bug-hunts** ([`bug-hunts/`](README.md#-bug-hunts--stress-testing-the-one-finding-claim)) — an active fork-diff/invariant hunt that climbs the whole stack, the method holding its discrimination (true negatives on audited code, real highs on buggy contest code, honest non-findings, one disclosed-and-redacted live finding) at every altitude:
+  - **app/contract layer** — large-cap consensus deltas, fresh commits, mid-cap DeFi, rollup oracles; then the [fork-and-contest hunt](bug-hunts/AUDIT-FORK-AND-CONTEST-HUNT.md) (26 targets / 6 batches, ending on **live bounty-eligible** Across/Euler v2/Fluid).
+  - **cross-VM layer** ([cross-VM hunt](bug-hunts/AUDIT-CROSS-VM-LIVE-HUNT.md)) — six live targets on six paradigms, each on its *native* taxonomy: crvUSD (Vyper), Kamino (Solana), Privacy Pools (zk), Cetus (Move), Osmosis (Cosmos-SDK), EntryPoint+Kernel (ERC-4337).
+  - **off-chain engine layer** ([infra hunt](bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md)) — CometBFT (BFT consensus-safety) + mev-boost (PBS trust); worst case is fork/halt or cheated-proposer, not value leak.
+  - **chain-security frontier** ([frontier hunt](bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md)) — Reth (execution client), OP Stack FaultDisputeGame (fraud proof), Babylon (Bitcoin staking); a bug = chain split / forged withdrawal / unslashable BTC.
 
 ---
 
