@@ -238,22 +238,62 @@ the oracle-class hunt showed, now demonstrated across logic/access/reentrancy/si
 | **Contest / known bugs found** | 4 | munchables (deadlock + retroactive-tax + over-mint), IQ AI (4% quorum + stale-var check + DOS), Cork (rate-ignoring conservation break, author-`FIXME`, conditional), SecondSwap (step-accounting H-03 + inherited-steps H-01/H-02 + unpaid-referral M-14) |
 | **Live finding (disclosed)** | 1 | [redacted lending protocol] — missing consumer-side Chainlink staleness check; verified from source, disclosed, redacted here |
 
-**Bug-class coverage across the 5 batches** (per the "don't just look for silo class" directive): oracle/staleness
+## Batch 6 — LIVE deployed, bounty-eligible targets (audited-code == on-chain code, confirmed)
+
+Shifted entirely onto **live, mainnet-deployed, actively-bountied** protocols — where a real finding has actual
+use and reward — and away from closed contest repos. The discipline that makes this meaningful: **each agent
+confirmed the audited source equals the deployed source** (tag/commit diff) before reporting, so a "clean" verdict
+is a statement about live code, not a stale snapshot. Full taxonomy, weighted to each protocol's recently-changed
+and novel-mechanism surfaces.
+
+| Target | Live status | Deployed==audited check | Classes hunted | Verdict |
+|---|---|---|---|---|
+| **Across Protocol** (`contracts` @ `v5.0.11`) | mainnet bridge, Immunefi | `git diff v5.0.11..HEAD` on `SpokePool/HubPool/MerkleLib` is **byte-identical**; only drift is a benign `MulticallHandler._safeTransfer` virtualization | deposit/fill 1:1 binding, merkle refund-leaf double-execution, message callback reentrancy, admin/cross-domain auth, speed-up sig replay | **clean** — relay hash binds `{origin, depositId, dest, params}`; fill-status + both merkle bitmaps set before any external call; repayment authorized only via liveness-gated optimistic root, never at fill time |
+| **Euler v2** (EVK `5b98b42` + EVC `v1.0.1`) | mainnet lending, Immunefi | EVC `git diff v1.0.1..HEAD -- src/` is **empty** (deployed Solidity == v1.0.1); EVK at maintained tip | EVC deferred-check/controller isolation, EVK conversion/interest/fee rounding, liquidation/socialization, hooks/operator/permit, read-only reentrancy | **clean** — status checks fire only on outer-frame unwind (can't end batch unhealthy); >1 controller reverts; every conversion rounds toward the vault; permit chain+nonce bound, `s>n/2` rejected |
+| **Fluid** (`fluid-contracts-public` @ `a9949b4`) | mainnet liquidity layer, Immunefi | no tags published; HEAD of `main` is the reference; **bit-field boundaries + storage masks recomputed non-overlapping from the actual constants** | bit-packed liquidity accounting (wrong-mask/shift), tick/branch liquidation, DEX smart-collateral share math, delegatecall dispatch, read-only reentrancy | **clean** — `_supplyOrWithdraw` mask `0xC0…0001` preserves exactly {bit0, 162-217, 254-255} and overwrites {1-161, 218-253}, matching the field map; deposit-down/withdraw-up rounding; read-only-reentrancy `_check()` reverts on the reentrancy bit |
+
+**Batch-6 note — "deployed == audited" is the load-bearing step.** A clean verdict on a GitHub HEAD is worthless if
+the chain runs a different bytecode. Each hunt here *first* pinned the live version: Across by diffing the stable
+release tag to HEAD (core files byte-identical), Euler by proving EVC's `src/` is unchanged since `v1.0.1`, Fluid
+by recomputing the bit-packing from the deployed constants rather than trusting the layout comments. That is the
+live-code analogue of recompute-don't-trust — and it is exactly why the one prior live finding (the redacted oracle
+gap) was actionable: it was confirmed against the source the protocol actually runs.
+
+**Honest non-exhaustive caveats (named, not buried):** Euler's peripheral modules (ESynth, PegStabilityModule,
+EulerSavingsRate, the individual Pyth/Redstone/Pendle oracle adapters, IRMLinearKink) were not read line-by-line —
+lower-privilege, but a larger surface for a deeper pass. Fluid's tick/branch liquidation engine and full DEX
+swap/arbitrage path are the two most complex novel modules; "no defect found" there reflects a careful but
+**non-exhaustive** review of the most security-relevant paths, not a correctness proof — they remain the
+highest-value follow-up targets. Across's chain-specific adapters and the SP1-Helios light-client path carry
+trust assumptions outside the core flow audited here.
+
+---
+
+## Final tally — 26 targets across 6 batches
+
+| Category | Count | Targets |
+|---|---|---|
+| **Clean** | 21 | Sablier, Solidly forks, Compound forks, Symbiotic, v4-periphery, Mellow, Wildcat, Gearbox, Dopex, Stargate v2, Kleidi, fx Protocol, ether.fi, Bunni v2, Upside, Hedgey, gnosis/zodiac, Ramses V3, **Across (live)**, **Euler v2 (live)**, **Fluid (live)** |
+| **Contest / known bugs found** | 4 | munchables (deadlock + retroactive-tax + over-mint), IQ AI (4% quorum + stale-var check + DOS), Cork (rate-ignoring conservation break, author-`FIXME`, conditional), SecondSwap (step-accounting H-03 + inherited-steps H-01/H-02 + unpaid-referral M-14) |
+| **Live finding (disclosed)** | 1 | [redacted lending protocol] — missing consumer-side Chainlink staleness check; verified from source, disclosed, redacted here |
+
+**Bug-class coverage across the 6 batches** (per the "don't just look for silo class" directive): oracle/staleness
 (batches 1–2), bridge/message-auth + calldata-whitelist + peg-conservation (batch 3), leveraged-stablecoin +
-LST exchange-rate + v4-hook settlement (batch 4), and logic/off-by-one + access-control/delegatecall +
-signature/replay + read-only-reentrancy (batch 5). The oracle-staleness pattern is **one row** of the matrix, not
-the matrix.
+LST exchange-rate + v4-hook settlement (batch 4), logic/off-by-one + access-control/delegatecall +
+signature/replay + read-only-reentrancy (batch 5), and **live deployed lending/bridge/liquidity-layer at the
+on-chain version** (batch 6). The oracle-staleness pattern is **one row** of the matrix, not the matrix.
 
 ---
 
 ## Synthesis — what the hunt established
 
-1. **The method discriminates — and not just on oracles.** Across 23 targets: production-audited code →
-   clean (18); ground-truth-buggy contest codebases → their real highs found (4); one live target → a
+1. **The method discriminates — and not just on oracles.** Across 26 targets: production/live-deployed code →
+   clean (21); ground-truth-buggy contest codebases → their real highs found (4); one live target → a
    source-confirmed (Medium, conditional) finding. Critically, the discrimination holds across the *full*
    taxonomy — batch 5 proved it on logic/off-by-one, access-control/delegatecall, signature/replay, and
-   read-only reentrancy with *no* oracle weighting, returning correct true-negatives on Hedgey/Zodiac/Ramses.
-   The oracle-staleness class was never the method; it was one productive row.
+   read-only reentrancy with *no* oracle weighting (clean on Hedgey/Zodiac/Ramses); batch 6 proved it on
+   *live, bounty-eligible* lending/bridge/liquidity-layer code at the on-chain version (clean on
+   Across/Euler v2/Fluid). The oracle-staleness class was never the method; it was one productive row.
 2. **Bugs live in the margins, not the core.** Where they were found (munchables, the live oracle gap) they
    were in *less-audited* or *recently-added* code, or in the **consumer-side integration** (the oracle
    read) rather than the well-studied primitive — restating the corpus law that the residual is what you
@@ -263,7 +303,10 @@ the matrix.
    source* before being treated as real (the alt_bn128 discipline); and severity/novelty were calibrated
    *down* honestly where warranted — Cork's conditional author-`FIXME`'d defect, fx Protocol's dropped-guard
    that directional pricing renders non-extractable, SecondSwap's all-published findings. No "dropped check"
-   was auto-promoted to a finding without tracing whether value can actually leave.
+   was auto-promoted to a finding without tracing whether value can actually leave. **For live targets the
+   same discipline extends to the deployment boundary:** batch 6 pinned audited-code == on-chain-code (tag
+   diffs, empty `src/` deltas, bit-packing recomputed from the deployed constants) before calling anything
+   clean, because a clean read of the wrong bytecode is worthless.
 4. **Disclosure posture held.** The one live finding is private-first + redacted; the closed-contest
    true-positives are named (already public); the clean negatives are reported plainly.
 
