@@ -875,6 +875,24 @@ collision-resistance — **plus one privacy-only term: the anonymity set can be 
 still hide nothing** (a 1-member group gives zero privacy; the contract only rejects *empty* groups). The
 analog, for a privacy primitive, of "the conservation floor holds but the oracle lies."
 
+**(a-deep) USDC vs USDT — the two settlement assets are different gods.** A deep comparative
+(`AUDIT-LARGECAP-STABLES-USDC-USDT.md`) shows the issuer-is-god model is *not uniform* across the two tokens
+that settle most of crypto. The decisive divergence is **seizure**: USDT's owner can `destroyBlackFunds`
+(zero a blacklisted balance and **burn it from supply** — irreversible confiscation), where USDC's
+blacklister can only **freeze**. USDT also has a **live owner-settable transfer-fee lever** (`setParams`,
+capped <0.2%, currently 0) and an **upgrade-by-forwarding** model (`deprecate` → every call delegates to an
+arbitrary new contract), all on a single `^0.4.17` owner key with single-step ownership; USDC **splits**
+authority across five logic roles + a *separate* proxy-admin key (policy vs code, two Circle multisigs),
+freezes-not-destroys, uses a transparent proxy, and adds a modern gasless surface (EIP-2612/3009/1271) whose
+own subtlety is the `transferWithAuthorization` front-run/nonce-grief that `receiveWithAuthorization`'s
+`to == msg.sender` gate exists to close. And USDT **breaks the ERC20 ABI** (no `bool` return + fee-on-transfer
+lever — the footgun that forced DeFi onto `SafeERC20`), a property every "conservation floor" holding USDT
+silently depends on handling. Both share the dominant residual — **off-chain bank reserves + partner-gated
+redemption**, proven live by USDC's ~\$0.87 SVB depeg (Mar 2023). The lesson sharpens the meta-residual:
+*the freeze key under DeFi is not one key — it's two different issuers with different powers, and the more
+unilateral one (USDT: seize + tax + forward-upgrade, single owner) is also the larger and the one on the
+oldest code.*
+
 **The §5i cross-cut — the floor's three hidden dependencies, named.** These three inversions reveal that the
 corpus's "the floor conserves" verdict always rested on three things it had been *trusting without saying
 so*: **(1) the token layer is neutral** (false for USDC — the issuer can freeze the floor); **(2) the
