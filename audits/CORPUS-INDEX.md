@@ -114,6 +114,7 @@ by one of (capstone §5d, §5g):
   - **coordination layer** ([admission-gate hunt](bug-hunts/AUDIT-COORDINATION-LAYER-HUNT.md)) — Hyperlane (interop message verification), Celestia (NMT/DA soundness), Arbitrum DAO (governance + cross-chain timelock); the bug class is *admit an illegitimate claim into privileged action* (forge a message / forge availability / execute the unauthorized).
   - **security primitives** ([bottom-turtles hunt](bug-hunts/AUDIT-SECURITY-PRIMITIVES-HUNT.md)) — Pyth (pull-oracle authenticity), ZF FROST (threshold-Schnorr unforgeability, RFC 9591), EigenLayer (slashable-stake conservation); the foundational guarantees an ecosystem composes on (price is real / key unforgeable / stake slashable), each reducing to one checkable fact or equation.
   - **deep large/mid-cap** ([full-lifecycle hunt](bug-hunts/AUDIT-LARGECAP-DEEP-HUNT.md)) — depth not breadth: Morpho (lending), Ethena V2 (synthetic dollar, the live EIP-1271 delta), Pendle (yield, PT+YT==SY), GMX v2 (perps); the shared safety architecture is *round-against-the-actor + a conservation backstop*, and the deep read confirms the whole lifecycle obeys it.
+  - **blue-chip infrastructure tier** ([infra-tier deep hunt](bug-hunts/AUDIT-BLUECHIP-DEEP-HUNT.md)) — Uniswap v4 (singleton AMM, `NonzeroDeltaCount==0`), Aave v3.7 (lending), Lido (LST, withdrawal min-rate), Sky/Maker (CDP dollar, `chi` + PSM buffer); same architecture at the highest TVL, and *deployed≠HEAD is the rule not the exception* (3 of 4 ran ahead of deployed bytecode, each pinned honestly).
 
 ---
 

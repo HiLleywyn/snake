@@ -47,6 +47,7 @@ dial · every doc by vertical). **The synthesis → [`methodology/AUDIT-CAPSTONE
 | [AUDIT-COORDINATION-LAYER-HUNT.md](bug-hunts/AUDIT-COORDINATION-LAYER-HUNT.md) | **Admission gates**: **Hyperlane** (interop message verify), **Celestia** (NMT/DA soundness — GHSA-r9fq completeness bypass present-and-patched), **Arbitrum DAO** (governance + cross-chain timelock). All clean |
 | [AUDIT-SECURITY-PRIMITIVES-HUNT.md](bug-hunts/AUDIT-SECURITY-PRIMITIVES-HUNT.md) | **The bottom turtles**: **Pyth** (pull-oracle authenticity), **ZF FROST** (threshold-Schnorr unforgeability — RFC 9591 Drijvers defense), **EigenLayer** (slashable-stake conservation — the two delays set equal). All clean |
 | [AUDIT-LARGECAP-DEEP-HUNT.md](bug-hunts/AUDIT-LARGECAP-DEEP-HUNT.md) | **Deep full-lifecycle** reads of the active verticals: **Morpho** (lending), **Ethena** (synthetic dollar — live V2 EIP-1271 delta), **Pendle** (yield, PT+YT==SY), **GMX v2** (perps — per-tx solvency backstop). All clean |
+| [AUDIT-BLUECHIP-DEEP-HUNT.md](bug-hunts/AUDIT-BLUECHIP-DEEP-HUNT.md) | **The infrastructure tier**: **Uniswap v4** (singleton AMM — `NonzeroDeltaCount==0`), **Aave v3.7** (lending — scaled-balance lattice), **Lido** (LST — withdrawal `min(rate)`), **Sky/Maker** (CDP dollar — `chi` + PSM buffer). All clean; 3 of 4 ran ahead of deployed bytecode (pinned honestly) |
 
 ## ⛓️ chains/ — L1 / L2 / rollup / privacy / cross-chain
 Grouped by conservation mechanism:
