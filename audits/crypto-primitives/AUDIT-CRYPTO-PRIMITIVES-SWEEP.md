@@ -1,5 +1,13 @@
 # Cryptographic-primitives sweep — the verifier's own correctness
 
+> **Deep dives:** each item now has an individualized deep audit (past the bn256/modexp focus this sweep
+> covers): **P1 →** [`AUDIT-P1-GETH-PRECOMPILES-DEEP.md`](AUDIT-P1-GETH-PRECOMPILES-DEEP.md) (per-fork dispatch +
+> gas-before-run, ecrecover/blake2F, the bn256 Miller-loop + pairing-product) · **P2 →**
+> [`AUDIT-P2-BLS12381-KZG-DEEP.md`](AUDIT-P2-BLS12381-KZG-DEEP.md) (the 9-precompile matrix, Pippenger discount,
+> the φ-endomorphism subgroup test, c-kzg internals + the trusted-setup no-subgroup-check observation) · **P3 →**
+> [`AUDIT-P3-REVM-DIFFERENTIAL-DEEP.md`](AUDIT-P3-REVM-DIFFERENTIAL-DEEP.md) (the full revm-vs-geth edge
+> differential; default-is-arkworks; every edge consensus-equivalent).
+
 The bottom of the stack, under the threat model in [`README.md`](README.md): a crafted input to a precompile
 or curve/pairing operation trying to make clients **diverge**, **accept a forgery**, exhaust resources
 (**DoS**), or smuggle a **malleable** encoding. The lens: *is every malformed input rejected

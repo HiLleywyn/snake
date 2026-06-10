@@ -396,6 +396,25 @@ essentially closed; the live risk concentrates at the **fail-safe frontier** (fr
 dual-representation/settlement/equivalence code — caught & fixed) and at the named **off-chain /
 cross-client / governance / oracle** substrate.
 
+**The active bug-hunt arc (extension of 5b — `bug-hunts/`).** Past the two consensus-delta hunts, the
+method was driven *outward and upward* as a live fork-diff/invariant hunt, holding its discrimination at
+every altitude (true negatives on audited code, real highs on buggy contest code, honest non-findings,
+**one disclosed-and-redacted live finding** — a consumer-side oracle-staleness gap):
+- **app/contract** — [fork-and-contest hunt](../bug-hunts/AUDIT-FORK-AND-CONTEST-HUNT.md) (26 targets / 6
+  batches, ending on live bounty-eligible Across/Euler v2/Fluid);
+- **cross-VM** — [cross-VM hunt](../bug-hunts/AUDIT-CROSS-VM-LIVE-HUNT.md) (six paradigms on their *native*
+  taxonomies: Vyper/Solana/zk/Move/Cosmos-SDK/ERC-4337);
+- **off-chain engine** — [infra hunt](../bug-hunts/AUDIT-OFFCHAIN-INFRA-HUNT.md) (CometBFT consensus-safety +
+  mev-boost PBS trust);
+- **chain-security frontier** — [frontier hunt](../bug-hunts/AUDIT-CHAIN-SECURITY-FRONTIER.md) (Reth client +
+  OP fraud proof + Babylon BTC staking — a bug = chain split / forged withdrawal / unslashable BTC).
+
+The arc *confirms* the fail-safe-substrate law from the live-protocol side: the production/live targets
+were clean with protocol-favoring rounding and complete guards; the real defects were on buggy contest
+code or in the consumer-side integration seam, never the well-studied primitive — and the higher the
+altitude, the more the "invariant" *is* the whole game (state-root equivalence, false-claim-never-valid,
+always-slashable-BTC), so the job became locating the specific code that makes that one sentence true.
+
 ---
 
 ## 5c. The full-stack trust traversal — seven layers, one law
@@ -937,6 +956,67 @@ the only way to know what backs a dollar is to follow it past the token contract
 custodian, the AMO, or the attester. The honest one-line summary for any stablecoin audit: **name the backing
 mechanism, name where it lives (on-chain / off-chain / reflexive), and name who can freeze, seize, or
 mis-report it — because the peg is a claim on *that*, never on the token's own code.**
+
+---
+
+## 5k. Three new trust models — governance-as-a-market, approval delegation, real-world credit
+
+Three further verticals, each a trust model the corpus hadn't isolated (Curve veCRV/gauges, Seaport, Maple;
+see `audits/protocols/AUDIT-CURVE-VECRV-GAUGE-GOVERNANCE.md`, `AUDIT-SEAPORT-MARKETPLACE-CONDUIT.md`,
+`AUDIT-MAPLE-RWA-PRIVATE-CREDIT.md`).
+
+**(a) Curve veCRV — governance-as-a-market (a third governance model).** §5f characterized governance as
+*control of a treasury/upgrade key, defended by a vote-weight snapshot + a timelock*. Curve's veCRV is a
+*different species*: votes don't pass proposals — **they direct a continuous, valuable stream of token
+emissions.** Voting power is **non-transferable, time-decaying *locked capital*** (`veCRV = CRV ·
+time_remaining/4yr`), which *inverts* the §5f flash-loan defense — you can't borrow veCRV cheaply, but you
+*can rent its output, the vote*, via the (off-chain) **bribe market** (Votium/Hidden Hand). `vote_for_gauge_
+weights` sets gauge weights that **directly multiply CRV minted to LPs** (`weight → rate·w·dt →
+integrate_fraction → Minter`), so a vote is a *tradable faucet*, and vote-buying is the **inevitable
+emergent economic layer**, not a bug. A DAO **admin gatekeeps which gauges are votable** (`add_gauge`,
+`kill`), stacking a *ceiling* (the menu) over a *market* (the allocation). Governance capture here is a
+**structural feature** — bounded only by the capital cost of locking and by admin curation. New §5e
+governance-ceiling sub-type: *governance-as-a-market* (the residual is "who can afford to direct the
+emissions," answered economically, not in code).
+
+**(b) Seaport — approval delegation (an immutable protocol with a custody residual *outside* it).** Seaport's
+settlement is *conserve-by-matching* (every consideration met or the batch reverts) and the engine is
+**fully immutable** — no owner, no upgrade, no pause (a maximal "delete the trust" instance like Uniswap
+v2). But the trust **moved one layer out, to the conduit**: users approve a long-lived **shared `Conduit`**,
+not Seaport, and the conduit's **owner can open an arbitrary channel that moves *any* token the conduit is
+approved for, from any holder, immediately** — with no order or signature (the source warns of this
+verbatim). The systemic risk is *concentration*: most users approve OpenSea's *one* canonical conduit, so
+its owner key sits under a vast approval base — **a risk independent of Seaport's immutability.** This
+sharpens a distinction the corpus had blurred: *an immutable protocol ≠ a trustless user experience* — the
+user's funds are exposed via a **standing approval to a separate, owner-governed contract.** It's the
+custody-side mirror of the §5i meta-residual (the USDC freeze key under DeFi): a key *outside* the audited
+contract that can move funds *inside* the user's wallet — here via the approval primitive. (Plus the **zone**
+as a per-order censor/veto hook, and a cheap quasi-random **counter** mass-cancel.)
+
+**(c) Maple — real-world credit (the floor with no collateral at all).** Every prior lender had an on-chain
+collateral floor (overcollateralized, reserve-locked, or at least liquidatable). Maple is the first
+**undercollateralized** one: open-term loans wire the **full principal directly to an off-chain KYC'd
+borrower with *zero* collateral** (storage has no collateral fields), and repayment is purely borrower-driven
+(`makePayment` is a `transferFrom`). The ERC4626 pool **books outstanding principal at par**
+(`assetsUnderManagement = principalOut + interest`), so a deteriorating borrower is *invisible* in the lender
+share price until a **Pool Delegate** chooses (reversibly) to impair it. The dominant residual is therefore
+**off-chain borrower solvency + delegate-underwriting discretion** — neither on-chain auditable — with loss
+on default = full principal minus a bounded first-loss cover, socialized to lenders. This is the cleanest
+extension of the off-chain-backing theme (§5i/§5j): the floor conserves the *ledger* and is silent on the
+*backing*, now applied to *credit* (and it's exactly where Maple's real 2022 losses occurred). The "oracle"
+of loan value is **a discretionary, reversible, par-defaulting human mark** — the loosest oracle in the
+corpus.
+
+**The §5k cross-cut — the trust keeps leaving the contract.** All three sharpen one meta-observation that has
+been building since §5i: **the residual increasingly lives *outside the audited contract entirely*** — in a
+vote-rental market (Curve), a separately-owned approval conduit (Seaport), or an off-chain borrower +
+delegate (Maple). The contracts in all three are *correct and often immutable*; the trust is an economic
+market, a sister contract's owner key, or a human credit decision. This is the strongest statement of the
+corpus's final lesson: **a clean, even immutable, contract is necessary but not sufficient — "where's the
+residual?" is answered, more and more, by following the value *out* of the code** to the market that prices
+the vote, the key that governs the approval, or the institution that owes the loan. The 5-class taxonomy
+(§5e) and the own-vs-delete dial (§5f) still hold; §5k adds that *deleting the trust from the protocol often
+just relocates it to an adjacent venue the protocol's own correctness can't reach.*
 
 ---
 

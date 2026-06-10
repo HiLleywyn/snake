@@ -1,5 +1,15 @@
 # Consensus-safety sweep — fork choice, the EL↔CL seam, equivocation
 
+> **Deep dives:** each item below now has an individualized deep audit reading the *full state machine* (past
+> the headline property this sweep covers): **C1 →** [`AUDIT-C1-GETH-ENGINE-API-DEEP.md`](AUDIT-C1-GETH-ENGINE-API-DEEP.md)
+> (forkchoiceUpdated safe/finalized validation, version-stamped PayloadID, optimistic-sync resolution, blob
+> hash binding) · **C2 →** [`AUDIT-C2-COMETBFT-STATE-MACHINE-DEEP.md`](AUDIT-C2-COMETBFT-STATE-MACHINE-DEEP.md)
+> (enterX panics, WAL fsync-before-sign double-sign prevention, POL anti-lying, light-client-attack evidence)
+> · **C3 →** [`AUDIT-C3-LIGHTHOUSE-FORK-CHOICE-DEEP.md`](AUDIT-C3-LIGHTHOUSE-FORK-CHOICE-DEEP.md)
+> (latest-message rule, the unrealized-justification pull-up, bottom-up weight, prune-to-finalized) · **C4 →**
+> [`AUDIT-C4-SOLANA-TOWER-SUI-MYSTICETI-DEEP.md`](AUDIT-C4-SOLANA-TOWER-SUI-MYSTICETI-DEEP.md) (the lockout
+> simulation, 0.38-switch accumulation, Sui's direct/indirect commit + halt-on-invariant).
+
 The agreement boundary under the threat model in [`README.md`](README.md): an adversarial
 validator/proposer/peer/EL trying to cause a **safety violation**, a **reorg**, a **liveness stall**, an
 **unjust slashing**, or an **EL↔CL split**. The lens: *does the code enforce exactly the safety/liveness

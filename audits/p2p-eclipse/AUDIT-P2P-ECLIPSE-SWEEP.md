@@ -1,5 +1,14 @@
 # P2P & eclipse-resistance sweep — can the node reach the honest network?
 
+> **Deep dives:** each sweep item below now has an individualized deep audit that reads the *full
+> lifecycle/state-machine* (past the bucketing this sweep covers): **E1 →**
+> [`AUDIT-E1-BITCOIN-ADDRMAN-DEEP.md`](AUDIT-E1-BITCOIN-ADDRMAN-DEEP.md) (test-before-evict, IsTerrible
+> gating, connect-time group dedup, untrusted-file re-bucket) · **E2 →**
+> [`AUDIT-E2-ETHEREUM-DISCV5-DEEP.md`](AUDIT-E2-ETHEREUM-DISCV5-DEEP.md) (replacement list, divide-by-3
+> revalidation, the handshake anti-spoof core) · **E3 →**
+> [`AUDIT-E3-LIBP2P-GOSSIPSUB-DEEP.md`](AUDIT-E3-LIBP2P-GOSSIPSUB-DEEP.md) (exact decay/deficit² math,
+> Dout-preserving mesh trim, PX two-gate trust, the validateQ choke).
+
 The networking floor, under the threat model in [`README.md`](README.md): a network-position adversary trying
 to **eclipse** a node (own all its peers → control its reality), **poison** its peer table, **DoS** it, or use
 discovery as an **amplification** reflector. The lens: *is the peer set diversified and hard to monopolize,
